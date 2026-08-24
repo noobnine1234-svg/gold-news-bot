@@ -9,6 +9,8 @@ import { isGoldRelevant } from "./filter.js";
 import { DedupStore } from "./dedup.js";
 import { rankAndSummarize, summarizeArticle, isPassing } from "./rank.js";
 import { fetchArticleText } from "./article.js";
+import { isReputableLink } from "./reputation.js";
+import { guardedFetch } from "./http.js";
 import { formatMessage, sendTelegram, deleteMessage } from "./telegram.js";
 
 const dryRun = process.argv.includes("--dry-run");
@@ -39,6 +41,17 @@ export async function runCycle(): Promise<void> {
   items = items.filter((it) => isGoldRelevant(it, KEYWORDS));
   items = items.filter((it) => !store.seen(it.hash));
   items.sort((a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0));
+
+  const vettedLocal = await Promise.all(
+    items.slice(0, 15).map(async (it) => ({
+      it,
+      ok: await isReputableLink(it, !!it.trusted, guardedFetch),
+    }))
+  );
+  const droppedRep = vettedLocal.filter((v) => !v.ok).length;
+  if (droppedRep) console.log(`[reputation] dropped ${droppedRep} non-allowlisted source(s)`);
+  items = vettedLocal.filter((v) => v.ok).map((v) => v.it);
+
   items = items.slice(0, config.max_items_per_cycle);
 
   console.log(`[cycle] ${items.length} candidate(s)`);

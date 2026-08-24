@@ -29,6 +29,7 @@ export async function parseFeed(xml: string, feed: FeedConfig): Promise<NewsItem
       link,
       source: feed.name,
       lang: feed.lang,
+      trusted: feed.trusted ?? false,
       pubDate: pubDate && !isNaN(pubDate.getTime()) ? pubDate : null,
     });
   }

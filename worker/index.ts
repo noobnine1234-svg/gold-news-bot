@@ -5,7 +5,9 @@ import { isGoldRelevant } from "../src/filter.js";
 import { rankAndSummarize, summarizeArticle, isPassing } from "../src/rank.js";
 import { fetchArticleText } from "./article.js";
 import { fetchFeed } from "./rss.js";
+import { guardedFetch } from "./http.js";
 import { KVState } from "./kvstore.js";
+import { isReputableLink } from "../src/reputation.js";
 import { formatMessage, sendTelegram, deleteMessage } from "../src/telegram.js";
 
 export interface Env {
@@ -72,6 +74,18 @@ async function runCycle(env: Env): Promise<void> {
   items = items.filter((it) => isGoldRelevant(it, KEYWORDS));
   items = items.filter((it) => !store.seen(it.hash));
   items.sort((a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0));
+
+  // reputable-sources-only: resolve wrapped aggregator links, drop the rest
+  const vetted = await Promise.all(
+    items.slice(0, 15).map(async (it) => ({
+      it,
+      ok: await isReputableLink(it, !!it.trusted, guardedFetch),
+    }))
+  );
+  const droppedRep = vetted.filter((v) => !v.ok).length;
+  if (droppedRep) console.log(`[reputation] dropped ${droppedRep} non-allowlisted source(s)`);
+  items = vetted.filter((v) => v.ok).map((v) => v.it);
+
   items = items.slice(0, MAX_ITEMS_PER_CYCLE);
 
   console.log(`[cycle] ${items.length} candidate(s)`);

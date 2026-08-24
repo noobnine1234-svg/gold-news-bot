@@ -8,5 +8,6 @@
     "noEmit": true,
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["src", "../src", "../test"]
+  "include": ["*.ts", "../src/**/*.ts", "../test/**/*.ts"],
+  "exclude": ["node_modules"]
 }

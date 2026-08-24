@@ -21,6 +21,7 @@ export async function fetchFeed(feed: FeedConfig): Promise<NewsItem[]> {
       link: it.link!,
       source: feed.name,
       lang: feed.lang,
+      trusted: feed.trusted ?? false,
       pubDate: it.isoDate ? new Date(it.isoDate) : it.pubDate ? new Date(it.pubDate) : null,
     }))
     .reduce(async (acc, p) => [...(await acc), await p], Promise.resolve([] as NewsItem[]));
