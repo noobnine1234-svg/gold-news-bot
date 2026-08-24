@@ -9,6 +9,9 @@ export class DedupStore {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
     this.db.exec("CREATE TABLE IF NOT EXISTS sent (hash TEXT PRIMARY KEY, sent_at INTEGER)");
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS messages (message_id INTEGER PRIMARY KEY, hash TEXT, sent_at INTEGER)"
+    );
   }
 
   seen(hash: string): boolean {
@@ -21,5 +24,23 @@ export class DedupStore {
 
   count(): number {
     return (this.db.prepare("SELECT COUNT(*) AS c FROM sent").get() as { c: number }).c;
+  }
+
+  trackMessage(hash: string, messageId: number, sentAt: number = Date.now()): void {
+    this.db
+      .prepare("INSERT OR REPLACE INTO messages (message_id, hash, sent_at) VALUES (?, ?, ?)")
+      .run(messageId, hash, sentAt);
+  }
+
+  expiredMessages(hours: number): number[] {
+    const cutoff = Date.now() - hours * 3_600_000;
+    return this.db
+      .prepare("SELECT message_id FROM messages WHERE sent_at <= ?")
+      .all(cutoff)
+      .map((r) => (r as { message_id: number }).message_id);
+  }
+
+  forgetMessage(messageId: number): void {
+    this.db.prepare("DELETE FROM messages WHERE message_id = ?").run(messageId);
   }
 }

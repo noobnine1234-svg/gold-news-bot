@@ -35,4 +35,17 @@ describe("DedupStore", () => {
     s.markSent("q");
     expect(s.count()).toBe(1);
   });
+
+  it("tracks and expires messages", () => {
+    const s = new DedupStore(path);
+    const now = Date.now();
+    s.trackMessage("h1", 101, now - 25 * 3_600_000); // 25h old
+    s.trackMessage("h2", 102, now - 1 * 3_600_000); // 1h old
+
+    expect(s.expiredMessages(24)).toEqual([101]);
+
+    s.forgetMessage(101);
+    expect(s.expiredMessages(24)).toEqual([]);
+    expect(s.expiredMessages(0).sort()).toEqual([102]);
+  });
 });

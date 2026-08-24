@@ -50,9 +50,17 @@ systemctl --user enable --now gold-news.timer
 loginctl enable-linger   # ให้รันต่อหลัง logout
 ```
 
+## Features
+
+- **AI คัดกรองก่อนส่ง** — 1 cycle = 1 Gemini call: ให้คะแนนทุก headline 0-10
+  (ตัดข่าวซ้ำ/โฆษณา/fluff เชิงเปรียบเทียบทั้งชุด) ส่งเฉพาะ `quality_threshold` ขึ้นไป พร้อมสรุปไทยใน call เดียว
+- **Model fallback chain** — 3.6-flash → 3.7-flash → 3.5-flash → 3.1-flash-lite (สลับอัตโนมัติเมื่อ quota/model ล่ม, AI ล่ม = fallback ส่ง raw ไม่มีข่าวหาย)
+- **Auto-delete** — ลบข้อความเก่ากว่า `delete_after_hours` (default 24 ชม.) กันห้องแชทรก
+
 ## Config
 
-แก้ `config.yaml` — feeds, keywords, interval_minutes, max_items_per_cycle
+แก้ `config.yaml` — feeds, keywords, interval_minutes, max_items_per_cycle,
+`quality_threshold` (0-10, default 6), `delete_after_hours` (0 = ปิดการลบ)
 Secrets อยู่ `.env` เท่านั้น
 
 ## Test

@@ -3,6 +3,8 @@
 interval_minutes: 5
 db_path: ./data/seen.sqlite
 max_items_per_cycle: 10
+quality_threshold: 6
+delete_after_hours: 24
 summary_language: th
 
 feeds:

@@ -2,8 +2,8 @@ import { loadConfig } from "./config.js";
 import { fetchFeed } from "./fetcher.js";
 import { isGoldRelevant } from "./filter.js";
 import { DedupStore } from "./dedup.js";
-import { summarizeThai } from "./summarize.js";
-import { formatMessage, sendTelegram } from "./telegram.js";
+import { rankAndSummarize } from "./rank.js";
+import { formatMessage, sendTelegram, deleteMessage } from "./telegram.js";
 import { existsSync } from "node:fs";
 
 if (existsSync(".env")) process.loadEnvFile(".env");
@@ -11,21 +11,21 @@ if (existsSync(".env")) process.loadEnvFile(".env");
 const dryRun = process.argv.includes("--dry-run");
 const once = process.argv.includes("--once");
 
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) {
-    console.error(`missing ${name} — copy .env.example to .env and fill it`);
-    process.exit(1);
-  }
-  return v;
-}
-
 async function runCycle(): Promise<void> {
   const config = loadConfig();
   const store = new DedupStore(config.db_path);
   const geminiKey = process.env.GEMINI_API_KEY;
   const tgToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
+
+  // F2: auto-delete old messages to keep the chat clean
+  if (!dryRun && config.delete_after_hours > 0 && tgToken && chatId) {
+    for (const id of store.expiredMessages(config.delete_after_hours)) {
+      const ok = await deleteMessage(tgToken, chatId, id);
+      if (!ok) console.log(`[purge] message ${id} already gone or too old — forgotten`);
+      store.forgetMessage(id);
+    }
+  }
 
   console.log(`[cycle] fetching ${config.feeds.length} feeds...`);
   const results = await Promise.allSettled(
@@ -40,33 +40,43 @@ async function runCycle(): Promise<void> {
   items.sort((a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0));
   items = items.slice(0, config.max_items_per_cycle);
 
-  console.log(`[cycle] ${items.length} new relevant item(s)`);
+  console.log(`[cycle] ${items.length} candidate(s)`);
 
-  const SUMMARY_DELAY_MS = 5000; // stay under Gemini free tier 20 req/min
-  let lastSummaryAt = 0;
+  if (!items.length) {
+    console.log("[cycle] done");
+    return;
+  }
+
+  // F1: one Gemini call per cycle scores + summarizes the whole batch
+  let ranked: Record<string, { score: number; summary: string }> | null = null;
+  if (geminiKey) ranked = await rankAndSummarize(items, geminiKey, config.quality_threshold);
+  if (!ranked && geminiKey) console.warn("[rank] AI ranking unavailable — falling back to send-all");
 
   for (const item of items) {
     try {
-      let summary: string | null = null;
-      if (geminiKey && item.lang === "en") {
-        const wait = lastSummaryAt + SUMMARY_DELAY_MS - Date.now();
-        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-        summary = await summarizeThai(item, geminiKey);
-        lastSummaryAt = Date.now();
+      const r = ranked?.[item.hash];
+      if (geminiKey && ranked && r && r.score < config.quality_threshold) {
+        console.log(`[skip] (${r.score}/10) ${item.title.slice(0, 60)}`);
+        store.markSent(item.hash);
+        continue;
       }
+      const summary = r && r.summary ? r.summary : null;
       const msg = formatMessage(item, summary);
       if (dryRun || !tgToken || !chatId) {
-        console.log("---- (dry-run / no token) ----\n" + msg + "\n");
+        console.log(`---- (dry-run${r ? ` score=${r.score}/10` : " no-ai"}) ----\n${msg}\n`);
       } else {
-        await sendTelegram(tgToken, chatId, msg);
-        console.log(`[sent] ${item.source}: ${item.title.slice(0, 60)}`);
+        const messageId = await sendTelegram(tgToken, chatId, msg);
+        if (messageId) store.trackMessage(item.hash, messageId);
+        console.log(
+          `[sent]${r ? ` (${r.score}/10)` : ""} ${item.source}: ${item.title.slice(0, 60)}`
+        );
       }
       store.markSent(item.hash);
     } catch (err) {
       console.error("[cycle] item failed:", err);
     }
   }
-  console.log(`[cycle] done, total sent ever: ${store.count()}`);
+  console.log(`[cycle] done, total processed ever: ${store.count()}`);
 }
 
 const config = loadConfig();

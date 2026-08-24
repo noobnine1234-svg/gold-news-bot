@@ -12,7 +12,7 @@ export function formatMessage(item: NewsItem, summary: string | null): string {
   return lines.join("\n");
 }
 
-export async function sendTelegram(token: string, chatId: string, text: string): Promise<void> {
+export async function sendTelegram(token: string, chatId: string, text: string): Promise<number | null> {
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   let lastErr = "";
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -23,7 +23,10 @@ export async function sendTelegram(token: string, chatId: string, text: string):
         body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
         signal: AbortSignal.timeout(15000),
       });
-      if (res.ok) return;
+      if (res.ok) {
+        const json = (await res.json()) as { result?: { message_id?: number } };
+        return json.result?.message_id ?? null;
+      }
       lastErr = `HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`;
     } catch (err) {
       lastErr = String(err);
@@ -31,6 +34,24 @@ export async function sendTelegram(token: string, chatId: string, text: string):
     if (attempt < 3) await sleep(attempt * 2000);
   }
   throw new Error(`telegram send failed after 3 attempts: ${lastErr}`);
+}
+
+export async function deleteMessage(
+  token: string,
+  chatId: string,
+  messageId: number
+): Promise<boolean> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+      signal: AbortSignal.timeout(15000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export function escapeHtml(s: string): string {

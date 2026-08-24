@@ -8,6 +8,8 @@ export type AppConfig = {
   interval_minutes: number;
   db_path: string;
   max_items_per_cycle: number;
+  quality_threshold: number;
+  delete_after_hours: number;
   summary_language: string;
   feeds: FeedConfig[];
   keywords: { strong: string[]; weak: string[] };
