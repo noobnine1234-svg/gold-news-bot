@@ -54,9 +54,9 @@ async function runCycle(): Promise<void> {
     : null;
   if (geminiKey && !ranked) console.warn("[rank] AI ranking unavailable — falling back to send-all");
 
-  const aiEnabled = !!geminiKey;
+  const aiVetted = !!ranked;
   const passes = (it: NewsItem): boolean =>
-    isPassing(ranked, aiEnabled, it.hash, config.quality_threshold);
+    isPassing(ranked, it.hash, config.quality_threshold);
 
   // stage 2: read the real article for each passing item and write a deep Thai summary
   const deepSummaries = new Map<string, string>();
@@ -78,18 +78,14 @@ async function runCycle(): Promise<void> {
   for (const item of items) {
     try {
       const r = ranked?.[item.hash];
-      if (aiEnabled && ranked && !passes(item)) {
+      if (aiVetted && !passes(item)) {
         console.log(`[skip] (${r?.score ?? "?"}/10) ${item.title.slice(0, 60)}`);
         if (!dryRun) store.markSent(item.hash);
         continue;
       }
       const summary =
         deepSummaries.get(item.hash) ?? (r && r.summary ? r.summary : null);
-      const msg = formatMessage(item, summary, {
-        score: r?.score,
-        direction: r?.direction,
-        why: r?.why,
-      });
+      const msg = formatMessage(item, summary, { direction: r?.direction, why: r?.why });
       if (dryRun || !tgToken || !chatId) {
         console.log(`---- (dry-run${r ? ` score=${r.score}/10` : " no-ai"}) ----\n${msg}\n`);
         continue; // dry-run never touches the dedup DB

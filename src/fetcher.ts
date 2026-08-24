@@ -1,9 +1,8 @@
 import Parser from "rss-parser";
 import { createHash } from "node:crypto";
+import { guardedFetch } from "./http.js";
 
 const MAX_FEED_BYTES = 2_000_000;
-const UA =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 
 export type NewsItem = {
   hash: string;
@@ -32,21 +31,16 @@ export async function fetchFeed(feedUrl: string, sourceName: string, lang: "en" 
     }));
 }
 
-// Download with a hard size cap so a broken/malicious feed can't OOM the bot.
+// Download through the SSRF-guarded fetch with a hard size cap so a broken or
+// malicious feed can't OOM the bot.
 async function fetchFeedXml(url: string): Promise<string | null> {
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      headers: { "User-Agent": UA },
-      redirect: "follow",
-      signal: AbortSignal.timeout(15000),
-    });
-  } catch {
+  const res = await guardedFetch(url, 15000, 0, "*/*");
+  if (!res || !res.ok || !res.body) return null;
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (declared > MAX_FEED_BYTES) {
+    res.body?.cancel();
     return null;
   }
-  if (!res.ok || !res.body) return null;
-  const declared = Number(res.headers.get("content-length") ?? 0);
-  if (declared > MAX_FEED_BYTES) return null;
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

@@ -9,7 +9,12 @@ const MODEL_CHAIN = [
 ];
 let activeModel: string | null = null;
 
-export type Ranked = { score: number; summary: string; direction?: string; why?: string };
+export type Direction = "bullish" | "bearish" | "neutral";
+export const DIRECTIONS: Direction[] = ["bullish", "bearish", "neutral"];
+
+export type Ranked = { score: number; summary: string; direction?: Direction; why?: string };
+
+type GeminiResponse = { candidates?: { content?: { parts?: { text?: string }[] } }[] };
 
 type CallResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -44,7 +49,7 @@ async function generate(model: string, apiKey: string, body: object): Promise<Ca
     });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const json = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
+      candidates?: GeminiResponse["candidates"];
     };
     const text = extractText(json);
     if (!text) return { ok: false, error: "empty response" };
@@ -158,11 +163,10 @@ export async function summarizeArticle(
 
 export function isPassing(
   ranked: Record<string, Ranked> | null,
-  aiEnabled: boolean,
   hash: string,
   threshold: number
 ): boolean {
-  if (!aiEnabled || !ranked) return true; // AI down -> send-all fallback
+  if (!ranked) return true; // AI down -> send-all fallback
   const r = ranked[hash];
   if (!r) return false; // model omitted this hash -> never send unvetted news
   return r.score >= threshold;
@@ -186,7 +190,7 @@ export function parseRanking(text: string): Record<string, Ranked> | null {
       out[r.hash] = {
         score: typeof r.score === "number" ? r.score : 0,
         summary: typeof r.summary_th === "string" ? r.summary_th.trim() : "",
-        direction: ["bullish", "bearish", "neutral"].includes(dir) ? dir : undefined,
+        direction: (DIRECTIONS as string[]).includes(dir) ? (dir as Direction) : undefined,
         why: typeof r.why === "string" && r.why.trim() ? r.why.trim() : undefined,
       };
     }

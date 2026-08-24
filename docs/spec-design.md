@@ -63,11 +63,17 @@ Thinking budget pinned to 0 so output tokens go to text.
   a news item is never lost because of AI, worst case it arrives uncategorized
 - Telegram send without message_id → treated as failure (retry ×3 backoff),
   so auto-delete never loses track of a sent message
-- item send failure → hash not marked sent → retried naturally next cycle
+- item send failure (after retry ×3) → poison-pill: hash IS marked sent so a
+  permanently unsendable item can't burn AI quota every cycle forever
+- all outbound HTTP (feeds + articles) goes through one SSRF-guarded fetch:
+  DNS resolves inside the connect step, only public addresses reach the socket
+  (IPv4-mapped IPv6 normalized), redirects manual ≤3 hops — no TOCTOU window
+- GitHub Actions dedup cache saves on SUCCESS only: a failed run must never
+  publish its state; cost is a possible single duplicate after a failed cycle
 
 ## Testing
 
-vitest 26 tests: filter logic, dedup + message expiry, message format +
+vitest 31 tests: filter logic, dedup + message expiry, message format +
 HTML escaping, hash determinism, ranking JSON parser (fences/bad fields/
 omitted hashes), isPassing gate (omitted hash never passes).
 

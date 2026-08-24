@@ -38,9 +38,13 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: npx tsx src/index.ts --once
 
-      - name: Save dedup DB even on partial failure
-        if: always()
+      - name: Save dedup DB on success only
+        if: success()
         uses: actions/cache/save@v4
         with:
           path: data
           key: goldnews-${{ github.run_id }}
+        # Deliberate policy: a failed run must NOT publish its state. Saving on
+        # failure would let an empty/partial DB become the newest prefix match
+        # (restore-keys) and shadow the last good dedup DB -> resend storm.
+        # Cost of this choice: items sent during a failed cycle are resent once.
