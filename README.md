@@ -40,7 +40,21 @@ npm run once    # dry-run: fetch+filter พิมพ์ออก console ไม�
 npm start       # รัน loop จริง ทุก interval_minutes (config.yaml)
 ```
 
-### Deploy systemd (user)
+### Deploy: GitHub Actions (production)
+
+Bot รันบน GitHub Actions ทุก 5 นาที — เครื่องคุณปิดก็ทำงาน
+
+1. Push repo (public = Actions ฟรีไม่จำกัด)
+2. ใส่ secrets: `gh secret set TELEGRAM_BOT_TOKEN` (และ `TELEGRAM_CHAT_ID`, `GEMINI_API_KEY`)
+3. workflow `.github/workflows/gold-news.yml` — cron + `workflow_dispatch` สำหรับรันมือ
+4. state dedup อยู่ใน actions/cache (`data/`) — runner ephemeral แต่ bot จำข่าวเก่าได้
+
+```bash
+gh workflow run gold-news.yml        # รันทันที
+gh run watch                          # ดูผล
+```
+
+### Deploy สำรอง: systemd ในเครื่อง (optional)
 
 ```bash
 mkdir -p ~/.config/systemd/user
