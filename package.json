@@ -8,6 +8,7 @@
   },
   "scripts": {
     "once": "tsx src/index.ts --dry-run",
+    "cycle": "tsx src/index.ts --once",
     "start": "tsx src/index.ts",
     "test": "vitest run"
   },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatMessage, escapeMd } from "../src/telegram.js";
+import { formatMessage, escapeHtml } from "../src/telegram.js";
 import { stableHash } from "../src/fetcher.js";
 import type { NewsItem } from "../src/fetcher.js";
 
@@ -15,18 +15,19 @@ const item: NewsItem = {
 describe("formatMessage", () => {
   it("includes title, source flag and link", () => {
     const msg = formatMessage(item, "ทองพุ่งแตะ 2,500 ดอลลาร์");
-    expect(msg).toContain("*Gold surges past \\$2,500*".replace("\\$", "$"));
+    expect(msg).toContain("<b>Gold surges past $2,500</b>");
     expect(msg).toContain("🌍");
     expect(msg).toContain("Kitco");
     expect(msg).toContain(item.link);
     expect(msg).toContain("ทองพุ่งแตะ");
   });
 
-  it("escapes markdown specials in title", () => {
-    const tricky = { ...item, title: "Gold [rises] *fast* _now_" };
-    const msg = formatMessage(tricky, null);
-    expect(msg).toContain("\\[rises\\]");
-    expect(msg).not.toContain("*fast*");
+  it("escapes html specials in title and summary", () => {
+    const tricky = { ...item, title: "Gold <rises> & shines" };
+    const msg = formatMessage(tricky, "a < b & c > d");
+    expect(msg).toContain("&lt;rises&gt; &amp; shines");
+    expect(msg).toContain("a &lt; b &amp; c &gt; d");
+    expect(msg).not.toContain("<rises>");
   });
 
   it("works without summary", () => {
@@ -35,9 +36,9 @@ describe("formatMessage", () => {
   });
 });
 
-describe("escapeMd", () => {
-  it("escapes _ * [ `", () => {
-    expect(escapeMd("a_b*c[d`e")).toBe("a\\_b\\*c\\[d\\`e");
+describe("escapeHtml", () => {
+  it("escapes & < >", () => {
+    expect(escapeHtml("a&b<c>d")).toBe("a&amp;b&lt;c&gt;d");
   });
 });
 

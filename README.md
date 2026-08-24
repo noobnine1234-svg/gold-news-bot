@@ -16,6 +16,9 @@ Node.js 24 + TypeScript · rss-parser · node:sqlite (dedup) · Gemini REST · T
 
 Kitco ปิด RSS สาธารณะแล้ว (404) — ใช้ FXStreet แทน
 
+ข่าว **EN** สรุปไทยด้วย `gemini-3.6-flash` (pacing 5 วิ/call กันชน free-tier 20 req/min)
+ข่าว **TH** ส่ง headline ตรง ไม่เสียโควตา Gemini
+
 ## Setup
 
 ```bash

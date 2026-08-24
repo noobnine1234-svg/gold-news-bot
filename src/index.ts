@@ -4,8 +4,12 @@ import { isGoldRelevant } from "./filter.js";
 import { DedupStore } from "./dedup.js";
 import { summarizeThai } from "./summarize.js";
 import { formatMessage, sendTelegram } from "./telegram.js";
+import { existsSync } from "node:fs";
+
+if (existsSync(".env")) process.loadEnvFile(".env");
 
 const dryRun = process.argv.includes("--dry-run");
+const once = process.argv.includes("--once");
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -38,10 +42,18 @@ async function runCycle(): Promise<void> {
 
   console.log(`[cycle] ${items.length} new relevant item(s)`);
 
+  const SUMMARY_DELAY_MS = 5000; // stay under Gemini free tier 20 req/min
+  let lastSummaryAt = 0;
+
   for (const item of items) {
     try {
       let summary: string | null = null;
-      if (geminiKey) summary = await summarizeThai(item, geminiKey);
+      if (geminiKey && item.lang === "en") {
+        const wait = lastSummaryAt + SUMMARY_DELAY_MS - Date.now();
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        summary = await summarizeThai(item, geminiKey);
+        lastSummaryAt = Date.now();
+      }
       const msg = formatMessage(item, summary);
       if (dryRun || !tgToken || !chatId) {
         console.log("---- (dry-run / no token) ----\n" + msg + "\n");
@@ -60,7 +72,7 @@ async function runCycle(): Promise<void> {
 const config = loadConfig();
 const intervalMs = config.interval_minutes * 60_000;
 
-if (dryRun) {
+if (dryRun || once) {
   await runCycle();
 } else {
   console.log(`gold-news-bot started, every ${config.interval_minutes} min`);

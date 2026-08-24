@@ -3,11 +3,11 @@ import type { NewsItem } from "./fetcher.js";
 export function formatMessage(item: NewsItem, summary: string | null): string {
   const flag = item.lang === "th" ? "🇹🇭" : "🌍";
   const lines = [
-    `🟡 *${escapeMd(item.title)}*`,
-    `${flag} _${item.source}_${ item.pubDate ? ` · ${formatDate(item.pubDate)}` : ""}`,
+    `🟡 <b>${escapeHtml(item.title)}</b>`,
+    `${flag} <i>${escapeHtml(item.source)}</i>${item.pubDate ? ` · ${formatDate(item.pubDate)}` : ""}`,
   ];
-  if (summary) lines.push("", summary);
-  else if (item.lang === "en") lines.push("", "_(สรุปอัตโนมัติไม่สำเร็จ — อ่านต้นทาง)_");
+  if (summary) lines.push("", escapeHtml(summary));
+  else if (item.lang === "en") lines.push("", "<i>(สรุปอัตโนมัติไม่สำเร็จ — อ่านต้นทาง)</i>");
   lines.push("", `🔗 ${item.link}`);
   return lines.join("\n");
 }
@@ -20,7 +20,7 @@ export async function sendTelegram(token: string, chatId: string, text: string):
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
         signal: AbortSignal.timeout(15000),
       });
       if (res.ok) return;
@@ -33,8 +33,8 @@ export async function sendTelegram(token: string, chatId: string, text: string):
   throw new Error(`telegram send failed after 3 attempts: ${lastErr}`);
 }
 
-export function escapeMd(s: string): string {
-  return s.replace(/([_*[\]`])/g, "\\$1");
+export function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function formatDate(d: Date): string {

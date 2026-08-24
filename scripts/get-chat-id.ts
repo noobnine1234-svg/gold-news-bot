@@ -1,7 +1,6 @@
-import { loadEnvFile } from "node:util";
 import { existsSync } from "node:fs";
 
-if (existsSync(".env")) loadEnvFile(".env");
+if (existsSync(".env")) process.loadEnvFile(".env");
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
   console.error("set TELEGRAM_BOT_TOKEN first (.env or export)");
