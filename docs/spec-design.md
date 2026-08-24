@@ -1,54 +1,77 @@
 # Gold News Telegram Bot — Design
 
-Date: 2026-08-24 · Status: implemented
+Date: 2026-08-24 · Status: implemented · Rev 2 (updated to match shipped code)
 
 ## Goal
 
 Real-time gold-market news from multiple trusted sources (Thai + English),
-summarized in Thai, pushed to Telegram. Zero running cost.
+AI-quality-filtered before sending, summarized in Thai from real article
+content, pushed to Telegram with auto-delete to keep the chat clean.
+Zero running cost.
 
 ## Decisions (user-approved)
 
 - Channel: **Telegram bot**
-- Sources: **mixed Thai + English** via direct RSS + Google News RSS queries
-- Delivery: **real-time alerts** (poll every 5 min)
-- Content: **Thai summary (2-3 lines, Gemini 2.0 Flash) + source link**
+- Sources: **mixed Thai + English** — direct RSS + Google News RSS queries
+- Delivery: **real-time alerts** (poll every interval_minutes)
+- Curation: **2-stage AI pipeline**:
+  1. batch-score all candidate headlines in one Gemini call per cycle;
+     only items scoring >= `quality_threshold` proceed
+     (hashes the model omits are treated as unvetted and never sent)
+  2. for each passing item, fetch the real article body (~3.5k chars) and
+     write a deep Thai prose summary; falls back to the stage-1 headline
+     summary or raw headline when content is unavailable
+- Hygiene: **auto-delete** messages older than `delete_after_hours`
 
 ## Architecture
 
 ```
-cycle (every interval_minutes from config.yaml)
-├── fetcher.ts   fetch all feeds parallel → NewsItem {hash,url,title,source,lang,date}
-├── filter.ts    relevance: strong kw (gold/xau/ทองคำ/ราคาทอง...) OR ≥2 weak kw
-│                (fed/rate cut/dollar/war/สงคราม...)
-├── dedup.ts     node:sqlite table `sent(hash PK)` — never resend
-├── summarize.ts Gemini REST gemini-3.6-flash, temp 0.2, exact numbers preserved
-└── telegram.ts  sendMessage MarkdownV1-style, escape title, retry ×3 backoff
+cycle (every interval_minutes)
+├── telegram purge    delete messages older than delete_after_hours
+├── fetcher.ts        parallel RSS -> NewsItem {hash,url,title,source,lang,date}
+├── filter.ts         cheap relevance gate (strong kw OR >=2 weak kw)
+├── dedup.ts          node:sqlite `sent(hash)` + `messages(message_id)` tables
+├── rank.ts           stage 1: one batch call scores+short-summarizes headlines
+│                     model fallback chain on 429/404/503/empty/unparseable
+├── article.ts        stage 2: fetch article HTML -> text (script/style stripped,
+│                     <article> preferred); Google News wrapper links yield null
+├── rank.ts           stage 2: summarizeArticle() deep Thai prose per passing item
+└── telegram.ts       send (HTML parse_mode, escaped variables), returns message_id
+                      or throws; deleteMessage best-effort
 ```
 
-Entry `index.ts`: dry-run mode (`--dry-run`) prints to console; loop mode uses setInterval.
+Entry `index.ts`: `--dry-run` prints to console and never writes the dedup DB;
+`--once` runs a single cycle then exits (used by systemd).
 
 ## Sources (verified live 2026-08-24)
 
-- FXStreet `https://www.fxstreet.com/rss/news` (Kitco public RSS is dead — 404)
-- MarketWatch `https://feeds.content.dowjones.io/public/rss/mw_topstories`
-- Investing.com gold `https://www.investing.com/rss/news_11.rss`
-- Google News RSS EN: `q=gold+price+OR+XAUUSD+when:1d`
-- Google News RSS TH: `q=ทองคำ+ราคาทอง+when:1d`
+- FXStreet, MarketWatch, Investing.com gold (EN direct — full article bodies)
+- Thairath Money, Brand Inside (TH direct — full article bodies)
+- Google News RSS EN (`gold price OR XAUUSD`) + TH (`ทองคำ ราคาทอง`) as
+  discovery layers; their wrapper links resolve to headline-only summaries
+
+## AI models
+
+Fallback chain: gemini-3.6-flash → 3.7-flash → 3.5-flash → 3.1-flash-lite
+(3.6 hit free-tier RPD first; chain remembers last working model).
+Thinking budget pinned to 0 so output tokens go to text.
 
 ## Error handling
 
-- feed fail → log, continue other feeds
-- Gemini fail / no key → fallback raw headline + link
-- Telegram fail → 3 retries with backoff, then log and keep item unsent (hash not marked)
+- feed fail → log, continue other feeds (Promise.allSettled)
+- AI unavailable at any stage → stage-1 fallback sends headlines unfiltered;
+  a news item is never lost because of AI, worst case it arrives uncategorized
+- Telegram send without message_id → treated as failure (retry ×3 backoff),
+  so auto-delete never loses track of a sent message
+- item send failure → hash not marked sent → retried naturally next cycle
 
 ## Testing
 
-vitest: filter logic (strong/weak/unrelated), dedup persistence/reopen,
-message format + markdown escaping, hash determinism — 12 tests.
-Smoke: live dry-run cycle fetched 5/5 feeds, 10 relevant TH+EN items.
+vitest 26 tests: filter logic, dedup + message expiry, message format +
+HTML escaping, hash determinism, ranking JSON parser (fences/bad fields/
+omitted hashes), isPassing gate (omitted hash never passes).
 
 ## Deployment
 
-systemd user service (oneshot) + timer every 5 min on this machine.
+systemd user service (`--once`) + timer every 5 min, linger enabled.
 Secrets in `.env` only (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GEMINI_API_KEY).

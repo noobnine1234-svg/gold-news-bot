@@ -1,13 +1,13 @@
+import { existsSync } from "node:fs";
+if (existsSync(".env")) process.loadEnvFile(".env");
+
 import { loadConfig } from "./config.js";
-import { fetchFeed } from "./fetcher.js";
+import { fetchFeed, type NewsItem } from "./fetcher.js";
 import { isGoldRelevant } from "./filter.js";
 import { DedupStore } from "./dedup.js";
-import { rankAndSummarize, summarizeArticle } from "./rank.js";
+import { rankAndSummarize, summarizeArticle, isPassing } from "./rank.js";
 import { fetchArticleText } from "./article.js";
 import { formatMessage, sendTelegram, deleteMessage } from "./telegram.js";
-import { existsSync } from "node:fs";
-
-if (existsSync(".env")) process.loadEnvFile(".env");
 
 const dryRun = process.argv.includes("--dry-run");
 const once = process.argv.includes("--once");
@@ -19,7 +19,7 @@ async function runCycle(): Promise<void> {
   const tgToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
 
-  // F2: auto-delete old messages to keep the chat clean
+  // auto-delete old messages to keep the chat clean
   if (!dryRun && config.delete_after_hours > 0 && tgToken && chatId) {
     for (const id of store.expiredMessages(config.delete_after_hours)) {
       const ok = await deleteMessage(tgToken, chatId, id);
@@ -48,22 +48,21 @@ async function runCycle(): Promise<void> {
     return;
   }
 
-  // F1: one Gemini call per cycle scores the whole batch from headlines
-  let ranked: Record<string, { score: number; summary: string }> | null = null;
-  if (geminiKey) ranked = await rankAndSummarize(items, geminiKey, config.quality_threshold);
-  if (!ranked && geminiKey) console.warn("[rank] AI ranking unavailable — falling back to send-all");
+  // stage 1: one Gemini call scores the whole batch from headlines
+  const ranked = geminiKey
+    ? await rankAndSummarize(items, geminiKey, config.quality_threshold)
+    : null;
+  if (geminiKey && !ranked) console.warn("[rank] AI ranking unavailable — falling back to send-all");
 
-  const passing = items.filter((it) => {
-    const r = ranked?.[it.hash];
-    return !geminiKey || !ranked || !r || r.score >= config.quality_threshold;
-  });
-  const passingSet = new Set(passing.map((p) => p.hash));
+  const aiEnabled = !!geminiKey;
+  const passes = (it: NewsItem): boolean =>
+    isPassing(ranked, aiEnabled, it.hash, config.quality_threshold);
 
-  // Stage 2 (2-stage mode): read the real article for each passing item
-  const deep = new Map<string, string>();
+  // stage 2: read the real article for each passing item and write a deep Thai summary
+  const deepSummaries = new Map<string, string>();
   if (geminiKey && ranked) {
     let n = 0;
-    for (const item of passing) {
+    for (const item of items.filter(passes)) {
       const content = await fetchArticleText(item.link);
       if (!content) {
         console.log(`[article] no content (${item.source}): ${item.title.slice(0, 50)}`);
@@ -71,7 +70,7 @@ async function runCycle(): Promise<void> {
       }
       if (n++ > 0) await new Promise((r) => setTimeout(r, 2000));
       const summary = await summarizeArticle(item, content, geminiKey);
-      if (summary) deep.set(item.hash, summary);
+      if (summary) deepSummaries.set(item.hash, summary);
       console.log(`[article] summarized (${content.length} chars): ${item.title.slice(0, 50)}`);
     }
   }
@@ -79,25 +78,23 @@ async function runCycle(): Promise<void> {
   for (const item of items) {
     try {
       const r = ranked?.[item.hash];
-      if (geminiKey && ranked && r && r.score < config.quality_threshold) {
-        console.log(`[skip] (${r.score}/10) ${item.title.slice(0, 60)}`);
-        store.markSent(item.hash);
+      if (aiEnabled && ranked && !passes(item)) {
+        console.log(`[skip] (${r?.score ?? "?"}/10) ${item.title.slice(0, 60)}`);
+        if (!dryRun) store.markSent(item.hash);
         continue;
       }
-      if (passingSet.has(item.hash) && !deep.has(item.hash)) {
-        console.log(`[note] headline-only: ${item.title.slice(0, 60)}`);
-      }
-      const summary = deep.get(item.hash) ?? (r && r.summary ? r.summary : null);
+      const summary =
+        deepSummaries.get(item.hash) ?? (r && r.summary ? r.summary : null);
       const msg = formatMessage(item, summary);
       if (dryRun || !tgToken || !chatId) {
         console.log(`---- (dry-run${r ? ` score=${r.score}/10` : " no-ai"}) ----\n${msg}\n`);
-      } else {
-        const messageId = await sendTelegram(tgToken, chatId, msg);
-        if (messageId) store.trackMessage(item.hash, messageId);
-        console.log(
-          `[sent]${r ? ` (${r.score}/10)` : ""} ${item.source}: ${item.title.slice(0, 60)}`
-        );
+        continue; // dry-run never touches the dedup DB
       }
+      const messageId = await sendTelegram(tgToken, chatId, msg);
+      store.trackMessage(item.hash, messageId);
+      console.log(
+        `[sent]${r ? ` (${r.score}/10)` : ""}${deepSummaries.has(item.hash) ? " [deep]" : ""} ${item.source}: ${item.title.slice(0, 60)}`
+      );
       store.markSent(item.hash);
     } catch (err) {
       console.error("[cycle] item failed:", err);

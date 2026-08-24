@@ -10,7 +10,6 @@ export type AppConfig = {
   max_items_per_cycle: number;
   quality_threshold: number;
   delete_after_hours: number;
-  summary_language: string;
   feeds: FeedConfig[];
   keywords: { strong: string[]; weak: string[] };
 };

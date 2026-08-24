@@ -12,7 +12,7 @@ export function formatMessage(item: NewsItem, summary: string | null): string {
   return lines.join("\n");
 }
 
-export async function sendTelegram(token: string, chatId: string, text: string): Promise<number | null> {
+export async function sendTelegram(token: string, chatId: string, text: string): Promise<number> {
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   let lastErr = "";
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -25,9 +25,12 @@ export async function sendTelegram(token: string, chatId: string, text: string):
       });
       if (res.ok) {
         const json = (await res.json()) as { result?: { message_id?: number } };
-        return json.result?.message_id ?? null;
+        const id = json.result?.message_id;
+        if (!id) lastErr = "ok response without message_id — refusing to create untracked message";
+        else return id;
+      } else {
+        lastErr = `HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`;
       }
-      lastErr = `HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`;
     } catch (err) {
       lastErr = String(err);
     }

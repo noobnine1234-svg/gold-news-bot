@@ -1,5 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { parseRanking } from "../src/rank.js";
+import { parseRanking, isPassing } from "../src/rank.js";
+
+describe("isPassing", () => {
+  const ranked = { a: { score: 8, summary: "" }, b: { score: 3, summary: "" } };
+
+  it("passes everything when AI disabled or ranking failed", () => {
+    expect(isPassing(null, true, "a", 6)).toBe(true);
+    expect(isPassing(null, false, "a", 6)).toBe(true);
+    expect(isPassing(ranked, false, "a", 6)).toBe(true);
+  });
+
+  it("never passes a hash the model omitted (unvetted)", () => {
+    expect(isPassing(ranked, true, "ghost-hash", 6)).toBe(false);
+  });
+
+  it("applies threshold to scored hashes", () => {
+    expect(isPassing(ranked, true, "a", 6)).toBe(true);
+    expect(isPassing(ranked, true, "b", 6)).toBe(false);
+    expect(isPassing(ranked, true, "b", 3)).toBe(true);
+  });
+});
 
 describe("parseRanking", () => {
   it("parses plain JSON array", () => {
