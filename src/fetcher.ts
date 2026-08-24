@@ -1,4 +1,9 @@
 import Parser from "rss-parser";
+import { createHash } from "node:crypto";
+
+const MAX_FEED_BYTES = 2_000_000;
+const UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 
 export type NewsItem = {
   hash: string;
@@ -9,9 +14,12 @@ export type NewsItem = {
   pubDate: Date | null;
 };
 
+const parser = new Parser();
+
 export async function fetchFeed(feedUrl: string, sourceName: string, lang: "en" | "th"): Promise<NewsItem[]> {
-  const parser = new Parser({ timeout: 15000 });
-  const feed = await parser.parseURL(feedUrl);
+  const xml = await fetchFeedXml(feedUrl);
+  if (!xml) throw new Error(`feed unavailable or too large: ${feedUrl}`);
+  const feed = await parser.parseString(xml);
   return (feed.items ?? [])
     .filter((it) => it.link && it.title)
     .map((it) => ({
@@ -24,17 +32,42 @@ export async function fetchFeed(feedUrl: string, sourceName: string, lang: "en" 
     }));
 }
 
-export function stableHash(s: string): string {
-  let h1 = 0xdeadbeef ^ s.length;
-  let h2 = 0x41c6ce57 ^ s.length;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
+// Download with a hard size cap so a broken/malicious feed can't OOM the bot.
+async function fetchFeedXml(url: string): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { "User-Agent": UA },
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch {
+    return null;
   }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  if (!res.ok || !res.body) return null;
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (declared > MAX_FEED_BYTES) return null;
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let xml = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_FEED_BYTES) {
+      void reader.cancel();
+      return null;
+    }
+    xml += decoder.decode(value, { stream: true });
+  }
+  xml += decoder.decode();
+  return xml;
+}
+
+export function stableHash(s: string): string {
+  return createHash("sha1").update(s).digest("base64url").slice(0, 22);
 }
 
 export function decodeEntities(s: string): string {

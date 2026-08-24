@@ -98,6 +98,12 @@ async function runCycle(): Promise<void> {
       store.markSent(item.hash);
     } catch (err) {
       console.error("[cycle] item failed:", err);
+      // poison-pill guard: sendTelegram already retried x3; without this a
+      // permanently unsendable item would burn AI quota every cycle forever
+      if (!dryRun) {
+        console.warn(`[poison] marking ${item.hash} seen to stop the retry loop`);
+        store.markSent(item.hash);
+      }
     }
   }
   console.log(`[cycle] done, total processed ever: ${store.count()}`);
@@ -109,7 +115,15 @@ const intervalMs = config.interval_minutes * 60_000;
 if (dryRun || once) {
   await runCycle();
 } else {
+  let running = false;
   console.log(`gold-news-bot started, every ${config.interval_minutes} min`);
-  void runCycle();
-  setInterval(runCycle, intervalMs);
+  const launch = (): void => {
+    if (running) return console.warn("[cycle] previous cycle still running — skipped");
+    running = true;
+    runCycle().finally(() => {
+      running = false;
+    });
+  };
+  launch();
+  setInterval(launch, intervalMs);
 }

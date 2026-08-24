@@ -7,4 +7,4 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=%h/projects/gold-news-bot
 ExecStart=/usr/bin/env npx tsx src/index.ts --once
-TimeoutStartSec=300
+TimeoutStartSec=600

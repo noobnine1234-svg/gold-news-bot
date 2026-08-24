@@ -8,7 +8,7 @@ export function formatMessage(item: NewsItem, summary: string | null): string {
   ];
   if (summary) lines.push("", escapeHtml(summary));
   else if (item.lang === "en") lines.push("", "<i>(สรุปอัตโนมัติไม่สำเร็จ — อ่านต้นทาง)</i>");
-  lines.push("", `🔗 ${item.link}`);
+  lines.push("", `🔗 ${escapeHtml(item.link)}`);
   return lines.join("\n");
 }
 

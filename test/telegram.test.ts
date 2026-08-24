@@ -32,7 +32,14 @@ describe("formatMessage", () => {
 
   it("works without summary", () => {
     const msg = formatMessage(item, null);
-    expect(msg).toContain(item.link);
+    expect(msg).toContain(escapeHtml(item.link));
+  });
+
+  it("escapes hostile link payloads (B2 regression)", () => {
+    const evil = { ...item, link: 'https://x.test/a?<script>alert(1)</script>&x="q"' };
+    const msg = formatMessage(evil, null);
+    expect(msg).not.toContain("<script>");
+    expect(msg).toContain("&lt;script&gt;");
   });
 });
 

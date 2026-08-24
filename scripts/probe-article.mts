@@ -1,7 +1,7 @@
 import Parser from "rss-parser";
 import { fetchArticleText } from "../src/article.js";
 import { summarizeArticle } from "../src/rank.js";
-process.loadEnvFile("/home/sukrit/projects/gold-news-bot/.env");
+process.loadEnvFile(".env");
 const p = new Parser();
 const f = await p.parseURL("https://www.fxstreet.com/rss/news");
 const g = f.items.find((i) => /gold|xau|dollar|fed/i.test(i.title));
