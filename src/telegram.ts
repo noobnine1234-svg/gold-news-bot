@@ -1,11 +1,22 @@
 import type { NewsItem } from "./fetcher.js";
 
-export function formatMessage(item: NewsItem, summary: string | null): string {
+export function formatMessage(
+  item: NewsItem,
+  summary: string | null,
+  meta?: { score?: number; direction?: string; why?: string }
+): string {
   const flag = item.lang === "th" ? "🇹🇭" : "🌍";
+  const dirBadge =
+    meta?.direction === "bullish" ? "📈 บวกต่อทอง" :
+    meta?.direction === "bearish" ? "📉 ลบต่อทอง" :
+    meta?.direction === "neutral" ? "➖ เป็นกลาง" : "";
   const lines = [
     `🟡 <b>${escapeHtml(item.title)}</b>`,
     `${flag} <i>${escapeHtml(item.source)}</i>${item.pubDate ? ` · ${formatDate(item.pubDate)}` : ""}`,
   ];
+  if (dirBadge) {
+    lines.push(`${dirBadge}${meta?.why ? ` — ${escapeHtml(meta.why)}` : ""}`);
+  }
   if (summary) lines.push("", escapeHtml(summary));
   else if (item.lang === "en") lines.push("", "<i>(สรุปอัตโนมัติไม่สำเร็จ — อ่านต้นทาง)</i>");
   lines.push("", `🔗 ${escapeHtml(item.link)}`);

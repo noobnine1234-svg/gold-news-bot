@@ -85,7 +85,11 @@ async function runCycle(): Promise<void> {
       }
       const summary =
         deepSummaries.get(item.hash) ?? (r && r.summary ? r.summary : null);
-      const msg = formatMessage(item, summary);
+      const msg = formatMessage(item, summary, {
+        score: r?.score,
+        direction: r?.direction,
+        why: r?.why,
+      });
       if (dryRun || !tgToken || !chatId) {
         console.log(`---- (dry-run${r ? ` score=${r.score}/10` : " no-ai"}) ----\n${msg}\n`);
         continue; // dry-run never touches the dedup DB
