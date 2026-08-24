@@ -2,7 +2,7 @@ name: gold-news
 
 on:
   schedule:
-    - cron: "2-59/5 * * * *" # every 5 min, offset to dodge top-of-hour cron peak
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 concurrency:
