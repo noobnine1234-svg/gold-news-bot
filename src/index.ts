@@ -2,7 +2,8 @@ import { loadConfig } from "./config.js";
 import { fetchFeed } from "./fetcher.js";
 import { isGoldRelevant } from "./filter.js";
 import { DedupStore } from "./dedup.js";
-import { rankAndSummarize } from "./rank.js";
+import { rankAndSummarize, summarizeArticle } from "./rank.js";
+import { fetchArticleText } from "./article.js";
 import { formatMessage, sendTelegram, deleteMessage } from "./telegram.js";
 import { existsSync } from "node:fs";
 
@@ -47,10 +48,33 @@ async function runCycle(): Promise<void> {
     return;
   }
 
-  // F1: one Gemini call per cycle scores + summarizes the whole batch
+  // F1: one Gemini call per cycle scores the whole batch from headlines
   let ranked: Record<string, { score: number; summary: string }> | null = null;
   if (geminiKey) ranked = await rankAndSummarize(items, geminiKey, config.quality_threshold);
   if (!ranked && geminiKey) console.warn("[rank] AI ranking unavailable — falling back to send-all");
+
+  const passing = items.filter((it) => {
+    const r = ranked?.[it.hash];
+    return !geminiKey || !ranked || !r || r.score >= config.quality_threshold;
+  });
+  const passingSet = new Set(passing.map((p) => p.hash));
+
+  // Stage 2 (2-stage mode): read the real article for each passing item
+  const deep = new Map<string, string>();
+  if (geminiKey && ranked) {
+    let n = 0;
+    for (const item of passing) {
+      const content = await fetchArticleText(item.link);
+      if (!content) {
+        console.log(`[article] no content (${item.source}): ${item.title.slice(0, 50)}`);
+        continue;
+      }
+      if (n++ > 0) await new Promise((r) => setTimeout(r, 2000));
+      const summary = await summarizeArticle(item, content, geminiKey);
+      if (summary) deep.set(item.hash, summary);
+      console.log(`[article] summarized (${content.length} chars): ${item.title.slice(0, 50)}`);
+    }
+  }
 
   for (const item of items) {
     try {
@@ -60,7 +84,10 @@ async function runCycle(): Promise<void> {
         store.markSent(item.hash);
         continue;
       }
-      const summary = r && r.summary ? r.summary : null;
+      if (passingSet.has(item.hash) && !deep.has(item.hash)) {
+        console.log(`[note] headline-only: ${item.title.slice(0, 60)}`);
+      }
+      const summary = deep.get(item.hash) ?? (r && r.summary ? r.summary : null);
       const msg = formatMessage(item, summary);
       if (dryRun || !tgToken || !chatId) {
         console.log(`---- (dry-run${r ? ` score=${r.score}/10` : " no-ai"}) ----\n${msg}\n`);

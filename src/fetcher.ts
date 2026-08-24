@@ -37,7 +37,7 @@ export function stableHash(s: string): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
-function decodeEntities(s: string): string {
+export function decodeEntities(s: string): string {
   const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
   return s
     .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))

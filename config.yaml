@@ -18,6 +18,13 @@ feeds:
   - name: Investing.com Gold
     url: https://www.investing.com/rss/news_11.rss
     lang: en
+  # --- direct TH sources (real article bodies for deep summaries) ---
+  - name: Thairath Money
+    url: https://www.thairath.co.th/rss/money
+    lang: th
+  - name: Brand Inside
+    url: https://www.brandinside.asia/feed/
+    lang: th
   # --- aggregators (multi-source, incl. Thai) ---
   - name: Google News EN
     url: "https://news.google.com/rss/search?q=gold+price+OR+XAUUSD+when:1d&hl=en-US&gl=US&ceid=US:en"
