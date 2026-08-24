@@ -40,19 +40,25 @@ npm run once    # dry-run: fetch+filter พิมพ์ออก console ไม�
 npm start       # รัน loop จริง ทุก interval_minutes (config.yaml)
 ```
 
-### Deploy: GitHub Actions (production)
+### Deploy: Cloudflare Workers (production)
 
-Bot รันบน GitHub Actions ทุก 5 นาที — เครื่องคุณปิดก็ทำงาน
-
-1. Push repo (public = Actions ฟรีไม่จำกัด)
-2. ใส่ secrets: `gh secret set TELEGRAM_BOT_TOKEN` (และ `TELEGRAM_CHAT_ID`, `GEMINI_API_KEY`)
-3. workflow `.github/workflows/gold-news.yml` — cron + `workflow_dispatch` สำหรับรันมือ
-4. state dedup อยู่ใน actions/cache (`data/`) — runner ephemeral แต่ bot จำข่าวเก่าได้
+Bot รันบน Cloudflare Workers — cron ทุก 5 นาที, เครื่องปิดได้, state บน KV
 
 ```bash
-gh workflow run gold-news.yml        # รันทันที
-gh run watch                          # ดูผล
+cd worker
+npx wrangler login                      # ครั้งแรก (browser authorize)
+npx wrangler kv namespace create STATE  # เอา id ใส่ wrangler.toml
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID
+npx wrangler secret put GEMINI_API_KEY
+npx wrangler deploy
+curl https://gold-news-bot.<subdomain>.workers.dev/   # trigger cycle ทันที
 ```
+
+หมายเหตุ: Google News RSS block CF egress IPs (503) → aggregator ใช้ Bing News TH;
+ข่าว EN วิ่งผ่าน direct feeds (FXStreet/MarketWatch/Investing)
+
+### Deploy สำรอง: GitHub Actions / systemd (optional)
 
 ### Deploy สำรอง: systemd ในเครื่อง (optional)
 

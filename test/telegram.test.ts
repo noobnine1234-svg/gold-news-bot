@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { formatMessage, escapeHtml } from "../src/telegram.js";
-import { stableHash } from "../src/fetcher.js";
+import { stableHash } from "../src/text.js";
 import type { NewsItem } from "../src/fetcher.js";
 
 const item: NewsItem = {
@@ -50,8 +50,8 @@ describe("escapeHtml", () => {
 });
 
 describe("stableHash", () => {
-  it("is deterministic and distinct", () => {
-    expect(stableHash("https://a.com/1")).toBe(stableHash("https://a.com/1"));
-    expect(stableHash("https://a.com/1")).not.toBe(stableHash("https://a.com/2"));
+  it("is deterministic and distinct", async () => {
+    expect(await stableHash("https://a.com/1")).toBe(await stableHash("https://a.com/1"));
+    expect(await stableHash("https://a.com/1")).not.toBe(await stableHash("https://a.com/2"));
   });
 });

@@ -1,5 +1,6 @@
 import { guardedFetch } from "./http.js";
-import { fetchArticleText as extractArticle, htmlToText } from "./extract.js";
+import { fetchArticleText as extractArticle } from "../src/extract.js";
+import { htmlToText } from "../src/extract.js";
 
 export { htmlToText };
 

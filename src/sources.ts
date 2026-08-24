@@ -1,0 +1,44 @@
+import type { FeedConfig } from "./types.js";
+
+// Single source of truth for feeds + relevance vocabulary, shared by the local
+// runner and the Cloudflare Worker.
+export const FEEDS: FeedConfig[] = [
+  // --- direct trusted EN sources ---
+  { name: "FXStreet", url: "https://www.fxstreet.com/rss/news", lang: "en" },
+  {
+    name: "MarketWatch",
+    url: "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+    lang: "en",
+  },
+  { name: "Investing.com Gold", url: "https://www.investing.com/rss/news_11.rss", lang: "en" },
+  // --- direct TH sources (real article bodies for deep summaries) ---
+  { name: "Thairath Money", url: "https://www.thairath.co.th/rss/money", lang: "th" },
+  { name: "Brand Inside", url: "https://www.brandinside.asia/feed/", lang: "th" },
+  // --- aggregators (multi-source discovery) ---
+  // Bing News RSS: Google News returns HTTP 503 to Cloudflare Workers egress IPs.
+  {
+    name: "Bing News TH",
+    url: "https://www.bing.com/news/search?q=%E0%B8%97%E0%B8%AD%E0%B8%87%E0%B8%84%E0%B8%B3+%E0%B8%A3%E0%B8%B2%E0%B8%84%E0%B8%B2%E0%B8%97%E0%B8%AD%E0%B8%87&format=RSS",
+    lang: "th",
+  },
+];
+
+export const KEYWORDS = {
+  strong: ["gold", "xau", "bullion", "ทองคำ", "ราคาทอง"],
+  weak: [
+    "fed",
+    "rate cut",
+    "rate hike",
+    "inflation",
+    "treasury",
+    "dollar",
+    "dollar index",
+    "dxy",
+    "ทองคำแท่ง",
+    "ทองคำรูปสัญญา",
+    "สงคราม",
+    "war",
+    "geopolitic",
+    "central bank",
+  ],
+};

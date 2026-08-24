@@ -1,9 +1,0 @@
-name: schedule-probe
-on:
-  schedule:
-    - cron: "* * * * *"
-jobs:
-  tick:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "scheduled tick"

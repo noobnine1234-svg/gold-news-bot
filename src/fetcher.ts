@@ -1,34 +1,29 @@
 import Parser from "rss-parser";
-import { createHash } from "node:crypto";
 import { guardedFetch } from "./http.js";
+import { decodeEntities, stableHash } from "./text.js";
+import type { FeedConfig, NewsItem } from "./types.js";
+
+export type { NewsItem, FeedConfig };
 
 const MAX_FEED_BYTES = 2_000_000;
 
-export type NewsItem = {
-  hash: string;
-  title: string;
-  link: string;
-  source: string;
-  lang: "en" | "th";
-  pubDate: Date | null;
-};
-
 const parser = new Parser();
 
-export async function fetchFeed(feedUrl: string, sourceName: string, lang: "en" | "th"): Promise<NewsItem[]> {
-  const xml = await fetchFeedXml(feedUrl);
-  if (!xml) throw new Error(`feed unavailable or too large: ${feedUrl}`);
-  const feed = await parser.parseString(xml);
-  return (feed.items ?? [])
+export async function fetchFeed(feed: FeedConfig): Promise<NewsItem[]> {
+  const xml = await fetchFeedXml(feed.url);
+  if (!xml) throw new Error(`feed unavailable or too large: ${feed.url}`);
+  const parsed = await parser.parseString(xml);
+  return (parsed.items ?? [])
     .filter((it) => it.link && it.title)
-    .map((it) => ({
-      hash: stableHash(it.link!),
+    .map(async (it) => ({
+      hash: await stableHash(it.link!),
       title: decodeEntities(it.title!.trim()),
       link: it.link!,
-      source: sourceName,
-      lang,
+      source: feed.name,
+      lang: feed.lang,
       pubDate: it.isoDate ? new Date(it.isoDate) : it.pubDate ? new Date(it.pubDate) : null,
-    }));
+    }))
+    .reduce(async (acc, p) => [...(await acc), await p], Promise.resolve([] as NewsItem[]));
 }
 
 // Download through the SSRF-guarded fetch with a hard size cap so a broken or
@@ -42,7 +37,7 @@ async function fetchFeedXml(url: string): Promise<string | null> {
     return null;
   }
 
-  const reader = res.body.getReader();
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   let total = 0;
   let xml = "";
@@ -58,16 +53,4 @@ async function fetchFeedXml(url: string): Promise<string | null> {
   }
   xml += decoder.decode();
   return xml;
-}
-
-export function stableHash(s: string): string {
-  return createHash("sha1").update(s).digest("base64url").slice(0, 22);
-}
-
-export function decodeEntities(s: string): string {
-  const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-  return s
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&([a-z]+);/gi, (m, name: string) => named[name.toLowerCase()] ?? m);
 }

@@ -1,9 +1,7 @@
 name: gold-news
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
+  workflow_dispatch: # production runs on Cloudflare Workers cron; this stays for manual runs
 
 concurrency:
   group: gold-news

@@ -47,7 +47,10 @@ async function generate(model: string, apiKey: string, body: object): Promise<Ca
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(45000),
     });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `HTTP ${res.status}: ${body.slice(0, 120)}` };
+    }
     const json = (await res.json()) as {
       candidates?: GeminiResponse["candidates"];
     };

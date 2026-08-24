@@ -1,12 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { isGoldRelevant } from "../src/filter.js";
-import type { NewsItem } from "../src/fetcher.js";
-import type { AppConfig } from "../src/config.js";
+import type { NewsItem } from "../src/types.js";
+import { KEYWORDS } from "../src/sources.js";
 
-const kw: AppConfig["keywords"] = {
-  strong: ["gold", "xau", "bullion", "ทองคำ", "ราคาทอง"],
-  weak: ["fed", "rate cut", "inflation", "dollar", "war", "สงคราม"],
-};
+const kw = { ...KEYWORDS };
 
 function item(title: string): NewsItem {
   return { hash: "h", title, link: "https://x.test/a", source: "T", lang: "en", pubDate: null };
