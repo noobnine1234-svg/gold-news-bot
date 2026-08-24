@@ -1,0 +1,10 @@
+[Unit]
+Description=Gold news bot (one fetch cycle)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/gold-news-bot
+ExecStart=/usr/bin/env npx tsx src/index.ts
+TimeoutStartSec=300

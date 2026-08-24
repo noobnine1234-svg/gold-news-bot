@@ -1,0 +1,30 @@
+# Gold news bot configuration
+
+interval_minutes: 5
+db_path: ./data/seen.sqlite
+max_items_per_cycle: 10
+summary_language: th
+
+feeds:
+  # --- direct trusted EN sources ---
+  - name: FXStreet
+    url: https://www.fxstreet.com/rss/news
+    lang: en
+  - name: MarketWatch
+    url: https://feeds.content.dowjones.io/public/rss/mw_topstories
+    lang: en
+  - name: Investing.com Gold
+    url: https://www.investing.com/rss/news_11.rss
+    lang: en
+  # --- aggregators (multi-source, incl. Thai) ---
+  - name: Google News EN
+    url: "https://news.google.com/rss/search?q=gold+price+OR+XAUUSD+when:1d&hl=en-US&gl=US&ceid=US:en"
+    lang: en
+  - name: Google News TH
+    url: "https://news.google.com/rss/search?q=%E0%B8%97%E0%B8%AD%E0%B8%87%E0%B8%84%E0%B8%B3+%E0%B8%A3%E0%B8%B2%E0%B8%84%E0%B8%B2%E0%B8%97%E0%B8%AD%E0%B8%87+when:1d&hl=th&gl=TH&ceid=TH:th"
+    lang: th
+
+keywords:
+  strong: [gold, xau, bullion, "ทองคำ", "ราคาทอง"]
+  weak: [fed, "rate cut", "rate hike", inflation, treasury, dollar, dollar index, dxy,
+         "ทองคำแท่ง", "ทองคำรูปสัญญา", "สงคราม", war, geopolitic, central bank]
