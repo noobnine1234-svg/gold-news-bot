@@ -22,7 +22,7 @@ cycle (every interval_minutes from config.yaml)
 ├── filter.ts    relevance: strong kw (gold/xau/ทองคำ/ราคาทอง...) OR ≥2 weak kw
 │                (fed/rate cut/dollar/war/สงคราม...)
 ├── dedup.ts     node:sqlite table `sent(hash PK)` — never resend
-├── summarize.ts Gemini REST gemini-2.0-flash, temp 0.2, exact numbers preserved
+├── summarize.ts Gemini REST gemini-3.6-flash, temp 0.2, exact numbers preserved
 └── telegram.ts  sendMessage MarkdownV1-style, escape title, retry ×3 backoff
 ```
 

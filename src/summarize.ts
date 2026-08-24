@@ -1,6 +1,6 @@
 import type { NewsItem } from "./fetcher.js";
 
-const API = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const API = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
 
 export async function summarizeThai(item: NewsItem, apiKey: string): Promise<string | null> {
   const body = {
