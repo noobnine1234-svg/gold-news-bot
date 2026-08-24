@@ -15,8 +15,11 @@ export interface Env {
   GEMINI_API_KEY: string;
 }
 
-const QUALITY_THRESHOLD = 6;
-const MAX_ITEMS_PER_CYCLE = 10;
+// Balance knobs: quality over quantity, and a hard cap on the expensive
+// stage-2 deep summaries (the main Gemini token consumer).
+const QUALITY_THRESHOLD = 7;
+const MAX_ITEMS_PER_CYCLE = 5;
+const MAX_DEEP_PER_CYCLE = 2;
 const DELETE_AFTER_HOURS = 24;
 
 export default {
@@ -48,6 +51,7 @@ async function runCycle(env: Env): Promise<void> {
   }
 
   console.log(`[cycle] fetching ${FEEDS.length} feeds...`);
+  console.log(`[build] 1787569937`);
   const results = await Promise.allSettled(
     FEEDS.map(async (f) => ({ feed: f, items: await fetchFeed(f) }))
   );
@@ -89,6 +93,7 @@ async function runCycle(env: Env): Promise<void> {
   if (geminiKey && ranked) {
     let n = 0;
     for (const item of items.filter(passes)) {
+      if (n >= MAX_DEEP_PER_CYCLE) break; // rest fall back to stage-1 summary
       const content = await fetchArticleText(item.link);
       if (!content) {
         console.log(`[article] no content (${item.source}): ${item.title.slice(0, 50)}`);
