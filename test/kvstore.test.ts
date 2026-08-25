@@ -47,4 +47,21 @@ describe("KVState", () => {
     s.forgetMessage(1);
     expect(s.expiredMessages(24)).toEqual([]);
   });
+
+  it("persists preferred AI model across load/flush (429 churn fix)", async () => {
+    const kv = memoryKV();
+    const s1 = await KVState.load(kv);
+    expect(s1.preferredModel).toBeNull(); // cold start: no preference
+    s1.setPreferredModel("gemini-3.5-flash");
+    await s1.flush();
+
+    const s2 = await KVState.load(kv);
+    expect(s2.preferredModel).toBe("gemini-3.5-flash");
+
+    // clearing writes the removal through
+    s2.setPreferredModel(null);
+    await s2.flush();
+    const s3 = await KVState.load(kv);
+    expect(s3.preferredModel).toBeNull();
+  });
 });

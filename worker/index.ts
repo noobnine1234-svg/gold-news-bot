@@ -2,7 +2,7 @@
 import { KEYWORDS, FEEDS } from "../src/sources.js";
 import type { NewsItem } from "../src/types.js";
 import { isGoldRelevant } from "../src/filter.js";
-import { rankAndSummarize, summarizeArticle, isPassing } from "../src/rank.js";
+import { rankAndSummarize, summarizeArticle, isPassing, setPreferredModel, activeModelAfterCycle } from "../src/rank.js";
 import { fetchArticleText } from "./article.js";
 import { fetchFeed } from "./rss.js";
 import { guardedFetch } from "./http.js";
@@ -42,6 +42,7 @@ export default {
 
 async function runCycle(env: Env): Promise<void> {
   const store = await KVState.load(env.STATE);
+  setPreferredModel(store.preferredModel); // skip 429'd models after isolate reset
   const { TELEGRAM_BOT_TOKEN: tgToken, TELEGRAM_CHAT_ID: chatId, GEMINI_API_KEY: geminiKey } = env;
 
   if (DELETE_AFTER_HOURS > 0 && tgToken && chatId) {
@@ -99,6 +100,12 @@ async function runCycle(env: Env): Promise<void> {
     ? await rankAndSummarize(items, geminiKey, QUALITY_THRESHOLD)
     : null;
   if (geminiKey && !ranked) console.warn("[rank] AI ranking unavailable — falling back to send-all");
+
+  // persist the model that actually served this cycle so the next isolate
+  // starts warm instead of burning 3 calls re-learning which models are 429'd
+  const served = activeModelAfterCycle();
+  if (served && ranked) store.setPreferredModel(served);
+  else if (!ranked) store.setPreferredModel(null);
 
   const aiVetted = !!ranked;
   const passes = (it: NewsItem): boolean => isPassing(ranked, it.hash, QUALITY_THRESHOLD);

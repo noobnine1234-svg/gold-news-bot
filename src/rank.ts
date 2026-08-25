@@ -9,6 +9,16 @@ const MODEL_CHAIN = [
 ];
 let activeModel: string | null = null;
 
+/** Seed the in-isolate preference from persisted state (Workers KV). */
+export function setPreferredModel(model: string | null): void {
+  if (model && MODEL_CHAIN.includes(model)) activeModel = model;
+}
+
+/** The model this isolate last saw succeed — null when nothing has worked yet. */
+export function activeModelAfterCycle(): string | null {
+  return activeModel;
+}
+
 export type Direction = "bullish" | "bearish" | "neutral";
 export const DIRECTIONS: Direction[] = ["bullish", "bearish", "neutral"];
 
