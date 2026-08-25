@@ -8,6 +8,7 @@
 const SEEN_KEY = "seen_hashes_v1";
 const MSG_KEY = "messages_v1";
 const MODEL_KEY = "preferred_model_v1";
+const PURGE_KEY = "last_purge_v1";
 
 export type KVLike = {
   get(key: string): Promise<string | null>;
@@ -19,26 +20,31 @@ export class KVState {
   private _seen: Set<string>;
   private _messages: Map<number, { hash: string; sentAt: number }>;
   preferredModel: string | null;
+  lastPurgeAt: number;
   private dirtySeen = false;
   private dirtyMsg = false;
   private dirtyModel = false;
+  private dirtyPurge = false;
 
   private constructor(
     private kv: KVLike,
     seen: Set<string>,
     messages: Map<number, { hash: string; sentAt: number }>,
-    preferredModel: string | null
+    preferredModel: string | null,
+    lastPurgeAt: number
   ) {
     this._seen = seen;
     this._messages = messages;
     this.preferredModel = preferredModel;
+    this.lastPurgeAt = lastPurgeAt;
   }
 
   static async load(kv: KVLike): Promise<KVState> {
-    const [seenRaw, msgRaw, modelRaw] = await Promise.all([
+    const [seenRaw, msgRaw, modelRaw, purgeRaw] = await Promise.all([
       kv.get(SEEN_KEY),
       kv.get(MSG_KEY),
       kv.get(MODEL_KEY),
+      kv.get(PURGE_KEY),
     ]);
     const seen = new Set<string>(seenRaw ? (JSON.parse(seenRaw) as string[]) : []);
     const messages = new Map<number, { hash: string; sentAt: number }>(
@@ -46,7 +52,7 @@ export class KVState {
         ([k, v]) => [Number(k), v]
       )
     );
-    return new KVState(kv, seen, messages, modelRaw);
+    return new KVState(kv, seen, messages, modelRaw, purgeRaw ? Number(purgeRaw) : 0);
   }
 
   /** Remember the last Gemini model that worked so a fresh isolate skips 429'd models. */
@@ -55,6 +61,12 @@ export class KVState {
       this.preferredModel = model;
       this.dirtyModel = true;
     }
+  }
+
+  /** Record that a purge pass ran, so a stalled worker is detectable from KV alone. */
+  markPurge(): void {
+    this.lastPurgeAt = Date.now();
+    this.dirtyPurge = true;
   }
 
   seen(hash: string): boolean {
@@ -96,8 +108,10 @@ export class KVState {
       if (this.preferredModel) await this.kv.put(MODEL_KEY, this.preferredModel);
       else await this.kv.delete(MODEL_KEY);
     }
+    if (this.dirtyPurge) await this.kv.put(PURGE_KEY, String(this.lastPurgeAt));
     this.dirtySeen = false;
     this.dirtyMsg = false;
     this.dirtyModel = false;
+    this.dirtyPurge = false;
   }
 }

@@ -22,7 +22,11 @@ export interface Env {
 const QUALITY_THRESHOLD = 7;
 const MAX_ITEMS_PER_CYCLE = 5;
 const MAX_DEEP_PER_CYCLE = 2;
-const DELETE_AFTER_HOURS = 24;
+const DELETE_AFTER_HOURS = 12;
+
+// Bump on every deploy so a live [build] marker tells us exactly which commit
+// is running — without it a stale worker is invisible in the logs.
+const BUILD = "feat/visibility-and-purge-1";
 
 export default {
   async scheduled(
@@ -46,15 +50,20 @@ async function runCycle(env: Env): Promise<void> {
   const { TELEGRAM_BOT_TOKEN: tgToken, TELEGRAM_CHAT_ID: chatId, GEMINI_API_KEY: geminiKey } = env;
 
   if (DELETE_AFTER_HOURS > 0 && tgToken && chatId) {
-    for (const id of store.expiredMessages(DELETE_AFTER_HOURS)) {
+    const expired = store.expiredMessages(DELETE_AFTER_HOURS);
+    for (const id of expired) {
       const ok = await deleteMessage(tgToken, chatId, id);
       if (!ok) console.log(`[purge] message ${id} already gone or too old — forgotten`);
       store.forgetMessage(id);
     }
+    if (expired.length) console.log(`[purge] deleted ${expired.length} message(s) older than ${DELETE_AFTER_HOURS}h`);
+    // Always stamp the purge pass so a stalled worker (cron skipped) is visible
+    // from KV alone — even when nothing was old enough to delete.
+    store.markPurge();
   }
 
   console.log(`[cycle] fetching ${FEEDS.length} feeds...`);
-  console.log(`[build] 1787569937`);
+  console.log(`[build] ${BUILD}`);
   const results = await Promise.allSettled(
     FEEDS.map(async (f) => ({ feed: f, items: await fetchFeed(f) }))
   );

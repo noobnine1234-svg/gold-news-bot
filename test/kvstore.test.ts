@@ -64,4 +64,21 @@ describe("KVState", () => {
     const s3 = await KVState.load(kv);
     expect(s3.preferredModel).toBeNull();
   });
+
+  it("tracks last purge pass across load/flush (stalled-worker visibility)", async () => {
+    const kv = memoryKV();
+    const s1 = await KVState.load(kv);
+    expect(s1.lastPurgeAt).toBe(0); // cold start: never purged
+    s1.markPurge();
+    await s1.flush();
+
+    const s2 = await KVState.load(kv);
+    expect(s2.lastPurgeAt).toBeGreaterThan(0);
+
+    // a second pass overwrites the stamp
+    s2.markPurge();
+    await s2.flush();
+    const s3 = await KVState.load(kv);
+    expect(s3.lastPurgeAt).toBeGreaterThanOrEqual(s2.lastPurgeAt);
+  });
 });
