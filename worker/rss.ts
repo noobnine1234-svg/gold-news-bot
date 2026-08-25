@@ -1,4 +1,4 @@
-import { decodeEntities, stableHash } from "../src/text.js";
+import { decodeEntities, stableHash, canonicalLink } from "../src/text.js";
 import type { FeedConfig, NewsItem } from "../src/types.js";
 import { guardedFetch } from "./http.js";
 
@@ -24,7 +24,7 @@ export async function parseFeed(xml: string, feed: FeedConfig): Promise<NewsItem
     const dateStr = pickTag(raw, "pubDate") ?? pickTag(raw, "updated");
     const pubDate = dateStr ? new Date(dateStr) : null;
     out.push({
-      hash: await stableHash(link),
+      hash: await stableHash(canonicalLink(link)),
       title: decodeEntities(title.replace(/<!\[CDATA\[|\]\]>/g, "").trim()),
       link,
       source: feed.name,

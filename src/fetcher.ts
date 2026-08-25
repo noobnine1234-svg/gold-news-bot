@@ -1,6 +1,6 @@
 import Parser from "rss-parser";
 import { guardedFetch } from "./http.js";
-import { decodeEntities, stableHash } from "./text.js";
+import { decodeEntities, stableHash, canonicalLink } from "./text.js";
 import type { FeedConfig, NewsItem } from "./types.js";
 
 export type { NewsItem, FeedConfig };
@@ -16,7 +16,7 @@ export async function fetchFeed(feed: FeedConfig): Promise<NewsItem[]> {
   return (parsed.items ?? [])
     .filter((it) => it.link && it.title)
     .map(async (it) => ({
-      hash: await stableHash(it.link!),
+      hash: await stableHash(canonicalLink(it.link!)),
       title: decodeEntities(it.title!.trim()),
       link: it.link!,
       source: feed.name,

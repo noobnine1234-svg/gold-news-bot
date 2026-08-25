@@ -13,3 +13,17 @@ export async function stableHash(s: string): Promise<string> {
   for (const b of new Uint8Array(buf)) bin += String.fromCharCode(b);
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "").slice(0, 22);
 }
+
+// Aggregator wrappers (Bing apiclick) carry a per-fetch tid param, so the same
+// story arrives under a fresh URL every cycle — hashing the raw link defeats
+// dedup. Canonical form: the real article URL when the wrapper embeds one
+// (?url=<encoded>), otherwise the link unchanged.
+export function canonicalLink(link: string): string {
+  try {
+    const u = new URL(link);
+    const inner = u.searchParams.get("url");
+    return inner ? inner : link;
+  } catch {
+    return link;
+  }
+}
