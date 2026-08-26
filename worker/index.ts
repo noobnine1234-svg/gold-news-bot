@@ -15,6 +15,7 @@ export interface Env {
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
   GEMINI_API_KEY: string;
+  MANUAL_TRIGGER_SECRET?: string;
 }
 
 // Balance knobs: quality over quantity, and a hard cap on the expensive
@@ -37,8 +38,13 @@ export default {
     ctx.waitUntil(runCycle(env));
   },
 
-  // manual trigger for testing: curl the worker URL
-  async fetch(_req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  // manual trigger for testing: curl the worker URL with ?secret=...
+  // Every request runs a full paid cycle (Gemini calls + Telegram sends), so
+  // an unauthenticated endpoint would let anyone burn quota or spam the channel.
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const secret = env.MANUAL_TRIGGER_SECRET;
+    const given = new URL(req.url).searchParams.get("secret");
+    if (!secret || given !== secret) return new Response("unauthorized\n", { status: 401 });
     await runCycle(env);
     return new Response("cycle done\n", { status: 200 });
   },
