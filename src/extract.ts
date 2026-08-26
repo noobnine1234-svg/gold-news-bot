@@ -7,6 +7,39 @@ export type FetchFn = (
   accept?: string
 ) => Promise<Response | null>;
 
+// Same rationale as the feed cap in fetcher.ts: a huge (or hostile) page must
+// not OOM the isolate. Streamed so we bail as soon as the cap is crossed.
+const MAX_ARTICLE_BYTES = 2_000_000;
+
+async function readCapped(res: Response): Promise<string | null> {
+  if (!res.body) return null;
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (declared > MAX_ARTICLE_BYTES) {
+    try {
+      res.body.cancel();
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let html = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_ARTICLE_BYTES) {
+      void reader.cancel();
+      return null;
+    }
+    html += decoder.decode(value, { stream: true });
+  }
+  html += decoder.decode();
+  return html;
+}
+
 export async function fetchArticleText(
   url: string,
   maxChars = 3500,
@@ -24,7 +57,8 @@ export async function fetchArticleText(
   }
   const ctype = res.headers.get("content-type") ?? "";
   if (!ctype.includes("html")) return null;
-  const html = await res.text();
+  const html = await readCapped(res);
+  if (!html) return null;
   const text = htmlToText(html);
   if (text.length < 200) return null; // nav junk / paywall stub
   return text.slice(0, maxChars);
