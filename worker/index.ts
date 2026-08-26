@@ -91,16 +91,21 @@ async function runCycle(env: Env): Promise<void> {
   items = items.filter((it) => !store.seen(it.hash));
   items.sort((a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0));
 
-  // reputable-sources-only: resolve wrapped aggregator links, drop the rest
+  // reputable-sources-only: resolve wrapped aggregator links, drop the rest.
+  // The resolved final URL replaces item.link so stage-2 fetches the exact
+  // host that was vetted (a rotating redirector can't pass once, then serve
+  // attacker content on the article fetch).
   const vetted = await Promise.all(
     items.slice(0, 15).map(async (it) => ({
       it,
-      ok: await isReputableLink(it, !!it.trusted, guardedFetch),
+      rep: await isReputableLink(it, !!it.trusted, guardedFetch),
     }))
   );
-  const droppedRep = vetted.filter((v) => !v.ok).length;
+  const droppedRep = vetted.filter((v) => !v.rep.ok).length;
   if (droppedRep) console.log(`[reputation] dropped ${droppedRep} non-allowlisted source(s)`);
-  items = vetted.filter((v) => v.ok).map((v) => v.it);
+  items = vetted
+    .filter((v) => v.rep.ok)
+    .map((v) => ({ ...v.it, link: v.rep.ok ? v.rep.url : v.it.link }));
 
   items = items.slice(0, MAX_ITEMS_PER_CYCLE);
 

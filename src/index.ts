@@ -42,15 +42,18 @@ export async function runCycle(): Promise<void> {
   items = items.filter((it) => !store.seen(it.hash));
   items.sort((a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0));
 
+  // reputable-sources-only gate + link pinning (same rationale as the worker)
   const vettedLocal = await Promise.all(
     items.slice(0, 15).map(async (it) => ({
       it,
-      ok: await isReputableLink(it, !!it.trusted, guardedFetch),
+      rep: await isReputableLink(it, !!it.trusted, guardedFetch),
     }))
   );
-  const droppedRep = vettedLocal.filter((v) => !v.ok).length;
+  const droppedRep = vettedLocal.filter((v) => !v.rep.ok).length;
   if (droppedRep) console.log(`[reputation] dropped ${droppedRep} non-allowlisted source(s)`);
-  items = vettedLocal.filter((v) => v.ok).map((v) => v.it);
+  items = vettedLocal
+    .filter((v) => v.rep.ok)
+    .map((v) => ({ ...v.it, link: v.rep.ok ? v.rep.url : v.it.link }));
 
   items = items.slice(0, config.max_items_per_cycle);
 
