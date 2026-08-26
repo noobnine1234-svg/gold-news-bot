@@ -24,6 +24,18 @@ export const DIRECTIONS: Direction[] = ["bullish", "bearish", "neutral"];
 
 export type Ranked = { score: number; summary: string; direction?: Direction; why?: string };
 
+// Model output is downstream of UNTRUSTED feed headlines (prompt injection,
+// ASI05) and lands verbatim in the Telegram channel. Cap length and strip
+// attacker-controlled contact/link patterns; the model never needs to emit
+// URLs or @handles to summarize gold news.
+const MAX_SUMMARY_CHARS = 600;
+const MAX_WHY_CHARS = 120;
+const EXFIL_PATTERN = /https?:\/\/\S*|www\.\S*|@[a-z0-9_]{3,}/gi;
+
+export function sanitizeAiText(text: string, maxChars: number): string {
+  return text.replace(EXFIL_PATTERN, "[…]").slice(0, maxChars);
+}
+
 type GeminiResponse = { candidates?: { content?: { parts?: { text?: string }[] } }[] };
 
 type CallResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -171,7 +183,8 @@ export async function summarizeArticle(
     };
     return generate(model, apiKey, body);
   });
-  return text;
+  // Stage-2 content is fetched article text (untrusted) — same output guard.
+  return text ? sanitizeAiText(text, MAX_SUMMARY_CHARS * 2) : null;
 }
 
 export function isPassing(
@@ -202,9 +215,9 @@ export function parseRanking(text: string): Record<string, Ranked> | null {
       const dir = typeof r.direction === "string" ? r.direction.toLowerCase() : "";
       out[r.hash] = {
         score: typeof r.score === "number" ? r.score : 0,
-        summary: typeof r.summary_th === "string" ? r.summary_th.trim() : "",
+        summary: typeof r.summary_th === "string" ? sanitizeAiText(r.summary_th.trim(), MAX_SUMMARY_CHARS) : "",
         direction: (DIRECTIONS as string[]).includes(dir) ? (dir as Direction) : undefined,
-        why: typeof r.why === "string" && r.why.trim() ? r.why.trim() : undefined,
+        why: typeof r.why === "string" && r.why.trim() ? sanitizeAiText(r.why.trim(), MAX_WHY_CHARS) : undefined,
       };
     }
     return Object.keys(out).length ? out : null;
