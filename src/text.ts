@@ -1,8 +1,11 @@
 export function decodeEntities(s: string): string {
   const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  // Codepoints above U+10FFFF throw RangeError from fromCodePoint — clamp to
+  // U+FFFD so a crafted feed can't kill its whole cycle.
+  const cp = (n: number): string => String.fromCodePoint(n > 0x10ffff ? 0xfffd : n);
   return s
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => cp(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => cp(parseInt(h, 16)))
     .replace(/&([a-z]+);/gi, (m, name: string) => named[name.toLowerCase()] ?? m);
 }
 
