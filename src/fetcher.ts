@@ -1,6 +1,7 @@
 import Parser from "rss-parser";
 import { guardedFetch } from "./http.js";
 import { decodeEntities, stableHash, canonicalLink } from "./text.js";
+import { readCappedStream } from "./stream.js";
 import type { FeedConfig, NewsItem } from "./types.js";
 
 export type { NewsItem, FeedConfig };
@@ -31,27 +32,6 @@ export async function fetchFeed(feed: FeedConfig): Promise<NewsItem[]> {
 // malicious feed can't OOM the bot.
 async function fetchFeedXml(url: string): Promise<string | null> {
   const res = await guardedFetch(url, 15000, 0, "*/*");
-  if (!res || !res.ok || !res.body) return null;
-  const declared = Number(res.headers.get("content-length") ?? 0);
-  if (declared > MAX_FEED_BYTES) {
-    res.body?.cancel();
-    return null;
-  }
-
-  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
-  const decoder = new TextDecoder();
-  let total = 0;
-  let xml = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_FEED_BYTES) {
-      void reader.cancel();
-      return null;
-    }
-    xml += decoder.decode(value, { stream: true });
-  }
-  xml += decoder.decode();
-  return xml;
+  if (!res || !res.ok) return null;
+  return readCappedStream(res, MAX_FEED_BYTES);
 }

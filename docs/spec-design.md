@@ -22,6 +22,7 @@ Zero running cost.
      write a deep Thai prose summary; falls back to the stage-1 headline
      summary or raw headline when content is unavailable
 - Hygiene: **auto-delete** messages older than `delete_after_hours`
+- Security: **reputation gate** — domain allowlist (23 vetted outlets) blocks non-allowlisted sources; wrapped aggregator links resolved to final host and dropped if untrusted
 
 ## Architecture
 
@@ -33,9 +34,11 @@ cycle (every interval_minutes)
 ├── dedup.ts          node:sqlite `sent(hash)` + `messages(message_id)` tables
 ├── rank.ts           stage 1: one batch call scores+short-summarizes headlines
 │                     model fallback chain on 429/404/503/empty/unparseable
-├── article.ts        stage 2: fetch article HTML -> text (script/style stripped,
+├── extract.ts        fetch article HTML -> text (script/style stripped,
 │                     <article> preferred); Google News wrapper links yield null
+├── article.ts        wrapper: fetch + extract for article text
 ├── rank.ts           stage 2: summarizeArticle() deep Thai prose per passing item
+├── reputation.ts     domain allowlist + redirect resolution for aggregator links
 └── telegram.ts       send (HTML parse_mode, escaped variables), returns message_id
                       or throws; deleteMessage best-effort
 ```
@@ -47,8 +50,8 @@ Entry `index.ts`: `--dry-run` prints to console and never writes the dedup DB;
 
 - FXStreet, MarketWatch, Investing.com gold (EN direct — full article bodies)
 - Thairath Money, Brand Inside (TH direct — full article bodies)
-- Google News RSS EN (`gold price OR XAUUSD`) + TH (`ทองคำ ราคาทอง`) as
-  discovery layers; their wrapper links resolve to headline-only summaries
+- Bing News TH (`ทองคำ ราคาทอง`) as discovery layer (Google News returns 503 to Cloudflare egress IPs)
+- EN discovery layer removed (Google News RSS blocked; direct feeds sufficient)
 
 ## AI models
 

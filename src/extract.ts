@@ -1,4 +1,5 @@
 import { decodeEntities } from "./text.js";
+import { readCappedStream } from "./stream.js";
 
 export type FetchFn = (
   url: string,
@@ -12,32 +13,7 @@ export type FetchFn = (
 const MAX_ARTICLE_BYTES = 2_000_000;
 
 async function readCapped(res: Response): Promise<string | null> {
-  if (!res.body) return null;
-  const declared = Number(res.headers.get("content-length") ?? 0);
-  if (declared > MAX_ARTICLE_BYTES) {
-    try {
-      res.body.cancel();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
-  const decoder = new TextDecoder();
-  let total = 0;
-  let html = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_ARTICLE_BYTES) {
-      void reader.cancel();
-      return null;
-    }
-    html += decoder.decode(value, { stream: true });
-  }
-  html += decoder.decode();
-  return html;
+  return readCappedStream(res, MAX_ARTICLE_BYTES);
 }
 
 export async function fetchArticleText(
