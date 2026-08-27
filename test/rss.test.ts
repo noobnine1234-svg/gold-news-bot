@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFeed } from "../worker/rss.js";
+import { parseFeed } from "../src/rss.js";
 
 const feed = { name: "Test", url: "https://x.test/rss", lang: "en" as const };
 

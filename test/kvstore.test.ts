@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { KVState, type KVLike } from "../worker/kvstore.js";
+import { KVState, type KVLike } from "../src/kvstore.js";
 
 function memoryKV(): KVLike & { store: Map<string, string> } {
   const store = new Map<string, string>();
