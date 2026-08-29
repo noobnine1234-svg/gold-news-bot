@@ -4,8 +4,8 @@ import { parseRanking, isPassing, sanitizeAiText, summarizeArticle } from "../sr
 describe("isPassing", () => {
   const ranked = { a: { score: 8, summary: "" }, b: { score: 3, summary: "" } };
 
-  it("passes everything when AI ranking failed (send-all fallback)", () => {
-    expect(isPassing(null, "a", 6)).toBe(true);
+  it("quarantines everything when AI ranking failed (no send-all)", () => {
+    expect(isPassing(null, "a", 6)).toBe(false);
   });
 
   it("never passes a hash the model omitted (unvetted)", () => {
