@@ -104,16 +104,18 @@ function extractText(json: unknown): string | null {
 export function rankAndSummarize(
   items: NewsItem[],
   apiKey: string,
-  threshold: number
+  threshold: number,
+  priceContext?: string | null
 ): Promise<Record<string, Ranked> | null> {
-  return withModelFallback(apiKey, (model) => callGemini(model, items, apiKey, threshold));
+  return withModelFallback(apiKey, (model) => callGemini(model, items, apiKey, threshold, priceContext ?? null));
 }
 
 async function callGemini(
   model: string,
   items: NewsItem[],
   apiKey: string,
-  threshold: number
+  threshold: number,
+  priceContext: string | null = null
 ): Promise<CallResult<Record<string, Ranked>>> {
   const body = {
     contents: [
@@ -135,6 +137,7 @@ async function callGemini(
               `FEW-SHOT:\n` +
               `  GOOD (9): "[Reuters] Gold hits record $2,550 as Fed cuts 25bp, DXY -0.8%" -> driver+price+timely\n` +
               `  BAD  (2): "[Blog] ราคาทองวันนี้ สรุปข่าวเช้า" recap no numbers/drivers -> fluff\n\n` +
+              + (priceContext ? `Gold spot now: ${priceContext} — use to judge whether a price level is new/high/low vs noise.\n` : "") +
               `For every item ALSO judge direction (bullish/bearish/neutral) and why (one short Thai clause, must mention driver: Fed/ดอกเบี้ย/เงินเฟ้อ/สงคราม/ETF/dollar/yield).\n` +
               `For score >= ${threshold}: Thai summary 1-2 lines, keep numbers exact; else ""\n\n` +
               `Respond ONLY JSON array for ALL hashes:\n` +
@@ -195,12 +198,17 @@ export async function summarizeArticle(
   return text ? sanitizeAiText(text, MAX_SUMMARY_CHARS * 2) : null;
 }
 
+export type BatchSummary = { summary: string; revisedScore: number | null };
+
 export async function summarizeArticlesBatch(
   items: Array<{ item: NewsItem; content: string }>,
-  apiKey: string
-): Promise<Map<string, string> | null> {
+  apiKey: string,
+  priceContext?: string | null
+): Promise<Map<string, BatchSummary> | null> {
   if (!items.length) return new Map();
+  const priceLine = priceContext ? `Gold spot now: ${priceContext} — use to calibrate price significance.\n` : "";
   const batchText =
+    priceLine +
     `You are a Thai financial analyst. For EACH article below, write a structured Thai analysis ` +
     `(4-6 short lines) covering:\n` +
     `1. เกิดอะไรขึ้น — event with exact numbers\n` +
@@ -215,7 +223,7 @@ export async function summarizeArticlesBatch(
           `--- ARTICLE ${i + 1} hash=${item.hash} ---\nSource: ${item.source}\nHeadline: ${item.title}\nContent:\n${content.slice(0, 3000)}`
       )
       .join("\n\n") +
-    `\n\nRespond ONLY JSON array: [{"hash":"...","summary_th":"..."}] for ALL hashes in order.`;
+    `\n\nAlso re-score each article 0-10 for REAL value after reading content (down-weight clickbait/fluff/recap that looked good in headline but has no numbers/drivers in body; up-weight hard numbers + named drivers).\nRespond ONLY JSON array: [{"hash":"...","summary_th":"...","revised_score":N}] for ALL hashes in order.`;
 
   const hashes = items.map(({ item }) => item.hash);
 
@@ -231,14 +239,18 @@ export async function summarizeArticlesBatch(
     const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
     const m = cleaned.match(/\[[\s\S]*\]/);
     const jsonStr = m ? m[0].replace(/,\s*([\]}])/g, "$1") : cleaned;
-    const arr = JSON.parse(jsonStr) as Array<{ hash?: string; summary_th?: string }>;
+    const arr = JSON.parse(jsonStr) as Array<{ hash?: string; summary_th?: string; revised_score?: unknown }>;
     if (!Array.isArray(arr) || !arr.length) return null;
-    const out = new Map<string, string>();
+    const out = new Map<string, BatchSummary>();
     for (const r of arr) {
       if (!r || typeof r.hash !== "string" || typeof r.summary_th !== "string") continue;
       if (!hashes.includes(r.hash)) continue;
       const s = sanitizeAiText(r.summary_th.trim(), MAX_SUMMARY_CHARS * 2);
-      if (s) out.set(r.hash, s);
+      if (!s) continue;
+      let rs: number | null = null;
+      if (typeof r.revised_score === "number" && Number.isFinite(r.revised_score)) rs = Math.max(0, Math.min(10, Math.round(r.revised_score)));
+      else if (typeof r.revised_score === "string" && r.revised_score.trim() !== "") { const n = Number(r.revised_score); if (Number.isFinite(n)) rs = Math.max(0, Math.min(10, Math.round(n))); }
+      out.set(r.hash, { summary: s, revisedScore: rs });
     }
     return out.size ? out : null;
   } catch {
