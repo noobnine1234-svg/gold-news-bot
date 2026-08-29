@@ -13,6 +13,36 @@ import { isReputableLink } from "./reputation.js";
 import { guardedFetch } from "./http.js";
 import { formatMessage, sendTelegram, deleteMessage } from "./telegram.js";
 
+function isQuarantineEligible(item: NewsItem, keywords: typeof KEYWORDS): boolean {
+  // balanced fallback: only trusted + strong keyword + recent <6h may pass when AI is down
+  const strong = keywords.strong.some((k) => item.title.toLowerCase().includes(k.toLowerCase()));
+  const ageOk = item.pubDate ? (Date.now() - item.pubDate.getTime()) < 6 * 3600_000 : false;
+  return !!item.trusted && strong && ageOk;
+}
+
+function dedupByTitle(items: NewsItem[]): NewsItem[] {
+  // Jaccard on token sets, threshold 0.82 — cheap semantic dedup without embedding
+  const tokenize = (s: string) => new Set(s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter(Boolean));
+  const jaccard = (a: Set<string>, b: Set<string>) => {
+    let inter = 0;
+    for (const x of a) if (b.has(x)) inter++;
+    const union = a.size + b.size - inter;
+    return union ? inter / union : 0;
+  };
+  const kept: NewsItem[] = [];
+  for (const it of items) {
+    const tok = tokenize(it.title);
+    let dup = false;
+    for (const k of kept) {
+      if (jaccard(tok, tokenize(k.title)) > 0.82) { dup = true; break; }
+    }
+    if (!dup) kept.push(it);
+  }
+  const dropped = items.length - kept.length;
+  if (dropped) console.log(`[dedup] dropped ${dropped} near-duplicate(s) by title`);
+  return kept;
+}
+
 const dryRun = process.argv.includes("--dry-run");
 const once = process.argv.includes("--once");
 
@@ -42,16 +72,33 @@ export async function runCycle(): Promise<void> {
   items = items.filter((it) => !store.seen(it.hash));
   items.sort((a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0));
 
-  // reputable-sources-only gate + link pinning (same rationale as the worker)
-  const vettedLocal = await Promise.all(
-    items.slice(0, 15).map(async (it) => ({
-      it,
-      rep: await isReputableLink(it, !!it.trusted, guardedFetch),
-    }))
+  // semantic dedup before reputation (cheap, saves fetches)
+  items = dedupByTitle(items);
+
+  // reputable-sources-only gate + link pinning — Tiered, with sample log
+  const toVet = items.slice(0, 15);
+  const vettedLocal = await Promise.allSettled(
+    toVet.map(async (it) => ({ it, rep: await isReputableLink(it, !!it.trusted, guardedFetch) }))
   );
-  const droppedRep = vettedLocal.filter((v) => !v.rep.ok).length;
-  if (droppedRep) console.log(`[reputation] dropped ${droppedRep} non-allowlisted source(s)`);
-  items = vettedLocal
+  const vetted: { it: NewsItem; rep: Awaited<ReturnType<typeof isReputableLink>> }[] = [];
+  let droppedRep = 0;
+  let dropSample: string | null = null;
+  for (const r of vettedLocal) {
+    if (r.status === "fulfilled") {
+      vetted.push(r.value as any);
+      if (!r.value.rep.ok) {
+        droppedRep++;
+        if (!dropSample) dropSample = `${r.value.it.source}: ${r.value.it.title.slice(0, 80)}`;
+      }
+    } else {
+      droppedRep++;
+    }
+  }
+  if (droppedRep) {
+    console.log(`[reputation] dropped ${droppedRep} non-allowlisted source(s)`);
+    if (dropSample) console.log(`[reputation:drop-sample] ${dropSample}`);
+  }
+  items = vetted
     .filter((v) => v.rep.ok)
     .map((v) => ({ ...v.it, link: v.rep.ok ? v.rep.url : v.it.link }));
 
@@ -64,44 +111,105 @@ export async function runCycle(): Promise<void> {
     return;
   }
 
-  // stage 1: one Gemini call scores the whole batch from headlines
-  const ranked = geminiKey
-    ? await rankAndSummarize(items, geminiKey, config.quality_threshold)
-    : null;
-  if (geminiKey && !ranked) console.warn("[rank] AI ranking unavailable — falling back to send-all");
+  // stage 1: one Gemini call scores the whole batch from headlines — with observability
+  let ranked: Awaited<ReturnType<typeof rankAndSummarize>> = null;
+  if (geminiKey) {
+    const t0 = Date.now();
+    try {
+      ranked = await rankAndSummarize(items, geminiKey, config.quality_threshold);
+      const ms = Date.now() - t0;
+      // logRank is fail-safe; never break the cycle on DB error
+      try {
+        const { getActiveModel, getLastRaw } = await import("./rank.js");
+        store.logRank({
+          model: getActiveModel(),
+          threshold: config.quality_threshold,
+          inputCount: items.length,
+          outputCount: ranked ? Object.keys(ranked).length : null,
+          latencyMs: ms,
+          error: ranked ? null : "all models failed or unparseable",
+          rawTruncated: getLastRaw()?.slice(0, 2000) ?? null,
+        });
+      } catch {}
+      console.log(`[rank] ${ranked ? Object.keys(ranked).length : 0}/${items.length} scored in ${ms}ms`);
+    } catch (e) {
+      const ms = Date.now() - t0;
+      try {
+        store.logRank({ model: null, threshold: config.quality_threshold, inputCount: items.length, outputCount: null, latencyMs: ms, error: String(e).slice(0, 300) });
+      } catch {}
+      console.warn("[rank] exception", e);
+    }
+  }
+  if (geminiKey && !ranked) console.warn("[rank] AI ranking unavailable — quarantine mode (no send-all)");
 
+  // aiVetted true only when we have a ranking; when ranked is null we are in quarantine
   const aiVetted = !!ranked;
-  const passes = (it: NewsItem): boolean =>
-    isPassing(ranked, it.hash, config.quality_threshold);
+  const passes = (it: NewsItem): boolean => {
+    if (ranked) return isPassing(ranked, it.hash, config.quality_threshold);
+    // quarantine: only trusted+strong+recent may pass, and they get a badge
+    return isQuarantineEligible(it, KEYWORDS);
+  };
 
-  // stage 2: read the real article for each passing item and write a deep Thai summary
+  // stage 2: deep Thai summary — budget-gated top 3, single batch call (saves N-1 quota)
   const deepSummaries = new Map<string, string>();
   if (geminiKey && ranked) {
-    let n = 0;
-    for (const item of items.filter(passes)) {
-      const content = await fetchArticleText(item.link);
-      if (!content) {
-        console.log(`[article] no content (${item.source}): ${item.title.slice(0, 50)}`);
-        continue;
+    const passing = items.filter(passes).sort((a, b) => (ranked[b.hash]?.score ?? 0) - (ranked[a.hash]?.score ?? 0)).slice(0, 3);
+    if (passing.length) {
+      const fetched = await Promise.all(
+        passing.map(async (it) => ({ it, content: await fetchArticleText(it.link) }))
+      );
+      const withContent = fetched.filter((x): x is { it: typeof x.it; content: string } => !!x.content);
+      if (withContent.length === 0) {
+        console.log("[article] no content for top passing items");
+      } else {
+        // batch path: one Gemini call for all deep summaries
+        const { summarizeArticlesBatch, summarizeArticle: summarizeOne } = await import("./rank.js");
+        // adapt {it,content} -> {item,content} for batch API
+        const batchInput = withContent.map(({ it, content }) => ({ item: it, content }));
+        let batch: Map<string, string> | null = null;
+        try {
+          batch = await summarizeArticlesBatch(batchInput, geminiKey);
+        } catch (e) {
+          console.warn("[article] batch summarize failed, falling back to single", e);
+        }
+        if (batch && batch.size) {
+          for (const [h, s] of batch) deepSummaries.set(h, s);
+          console.log(`[article] batch summarized ${batch.size}/${withContent.length} (saved ${withContent.length - 1} call(s))`);
+          // fallback any missing (partial failure) via single-call path
+          for (const { it, content } of withContent) {
+            if (!deepSummaries.has(it.hash)) {
+              const s = await summarizeOne(it, content, geminiKey);
+              if (s) deepSummaries.set(it.hash, s);
+            }
+          }
+        } else {
+          // batch unparseable or empty -> sequential fallback (max 3 calls)
+          console.warn("[article] batch empty/unparseable, sequential fallback");
+          for (const { it, content } of withContent) {
+            const s = await summarizeOne(it, content, geminiKey);
+            if (s) deepSummaries.set(it.hash, s);
+            console.log(`[article] summarized (${content.length} chars): ${it.title.slice(0, 50)}`);
+          }
+        }
       }
-      if (n++ > 0) await new Promise((r) => setTimeout(r, 2000));
-      const summary = await summarizeArticle(item, content, geminiKey);
-      if (summary) deepSummaries.set(item.hash, summary);
-      console.log(`[article] summarized (${content.length} chars): ${item.title.slice(0, 50)}`);
     }
   }
 
   for (const item of items) {
     try {
       const r = ranked?.[item.hash];
-      if (aiVetted && !passes(item)) {
-        console.log(`[skip] (${r?.score ?? "?"}/10) ${item.title.slice(0, 60)}`);
+      if (!passes(item)) {
+        // in quarantine mode we still want to log why, but aiVetted distinguishes
+        const reason = ranked ? `score ${r?.score ?? "?"}/10` : "quarantine";
+        console.log(`[skip] (${reason}) ${item.title.slice(0, 60)}`);
         if (!dryRun) store.markSent(item.hash);
         continue;
       }
+      const inQuarantine = !ranked && isQuarantineEligible(item, KEYWORDS);
       const summary =
         deepSummaries.get(item.hash) ?? (r && r.summary ? r.summary : null);
-      const msg = formatMessage(item, summary, { direction: r?.direction, why: r?.why });
+      const whyBadge = inQuarantine ? "⚠️ AI กรองไม่สำเร็จ — ส่งเพราะแหล่งเชื่อถือ+ตรงประเด็น" : r?.why;
+      const msg = formatMessage(item, summary, { direction: r?.direction, why: whyBadge });
       if (dryRun || !tgToken || !chatId) {
         console.log(`---- (dry-run${r ? ` score=${r.score}/10` : " no-ai"}) ----\n${msg}\n`);
         continue; // dry-run never touches the dedup DB

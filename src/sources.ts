@@ -43,7 +43,7 @@ export const REPUTABLE_DOMAINS = [
   "bbc.com",
   "mining.com",
   "goldprice.org",
-  // Thai outlets
+  // Thai outlets — direct trusted + allowlisted aggregator targets
   "thairath.co.th",
   "brandinside.asia",
   "bangkokpost.com",
@@ -53,6 +53,22 @@ export const REPUTABLE_DOMAINS = [
   "tnnthailand.com",
   "sanook.com",
   "workpointtoday.com",
+  // Thai hosts observed from Bing News apiclick (2026-08-29, fail-closed starvation)
+  "msn.com", // Microsoft News TH syndication — final host after Bing apiclick redirect
+  "komchadluek.net",
+  "bangkokbiznews.com",
+  "ryt9.com",
+  "thethaiger.com",
+  "thebangkokinsight.com",
+  // vetted Thai finance/news missing from v1 (gold-price coverage)
+  "matichon.co.th",
+  "dailynews.co.th",
+  "pptvhd36.com",
+  "thansettakij.com",
+  "kaohoon.com",
+  "posttoday.com",
+  "thestandard.co",
+  "tnews.co.th",
 ];
 
 export const KEYWORDS = {

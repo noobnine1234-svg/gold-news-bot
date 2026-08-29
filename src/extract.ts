@@ -43,12 +43,33 @@ export async function fetchArticleText(
 export function htmlToText(html: string): string {
   let s = html
     .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<(script|style|noscript|svg|iframe|form)[\s\S]*?<\/\1>/gi, " ");
+    // remove consent/cookie banners that otherwise become nav junk
+    .replace(/<div[^>]*id="consent[^"]*"[\s\S]*?<\/div>/gi, " ")
+    .replace(/<div[^>]*class="[^"]*consent[^"]*"[\s\S]*?<\/div>/gi, " ")
+    .replace(/<(script|style|noscript|svg|iframe|form|nav|header|footer)[\s\S]*?<\/\1>/gi, " ");
+  // prefer <article> when it contains substantial content
   const articleMatch = s.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
   if (articleMatch && articleMatch[1].length > 500) s = articleMatch[1];
+  // msn.com and other SPA shells have empty body — try ld+json articleBody fallback before stripping tags
+  if (s.replace(/<[^>]+>/g, " ").trim().length < 200) {
+    const ldBody = html.match(/"articleBody"\s*:\s*"((?:\\"|[^"])*)"/);
+    if (ldBody && ldBody[1].length > 200) {
+      try {
+        const decoded = JSON.parse(`"${ldBody[1]}"`);
+        if (decoded.length > 200) return decodeEntities(decoded).replace(/\s+/g, " ").trim().slice(0, 8000);
+      } catch {}
+    }
+    // meta description fallback (msn SPA often has at least this)
+    const mDesc =
+      html.match(/<meta[^>]*name="description"[^>]*content="([^"]+)"/i) ||
+      html.match(/<meta[^>]*property="og:description"[^>]*content="([^"]+)"/i);
+    if (mDesc && mDesc[1].length > 150) {
+      return decodeEntities(mDesc[1]).replace(/\s+/g, " ").trim();
+    }
+  }
   s = s
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li|tr|section|article)>/gi, "\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ");
   return decodeEntities(s)

@@ -48,4 +48,20 @@ describe("DedupStore", () => {
     expect(s.expiredMessages(24)).toEqual([]);
     expect(s.expiredMessages(0).sort()).toEqual([102]);
   });
+
+  it("logs and retains ai_rank_log with 30d cutoff", () => {
+    const s = new DedupStore(path);
+    s.logRank({ model: "gemini-3.1-flash-lite", threshold: 6, inputCount: 10, outputCount: 8, latencyMs: 1200, error: null, rawTruncated: "ok" });
+    s.logRank({ cycleAt: Date.now() - 31 * 24 * 3600_000, model: "old", threshold: 6, inputCount: 5, outputCount: 5, latencyMs: 500, error: null });
+    const logs = s.recentRankLogs(10);
+    expect(logs.length).toBe(1);
+    expect(logs[0].model).toBe("gemini-3.1-flash-lite");
+    expect(logs[0].input_count).toBe(10);
+  });
+
+  it("caps rawTruncated at 2000 chars", () => {
+    const s = new DedupStore(path);
+    s.logRank({ model: "m", threshold: 6, inputCount: 1, outputCount: 1, latencyMs: 10, rawTruncated: "x".repeat(5000) });
+    expect(s.recentRankLogs(1)[0].model).toBe("m");
+  });
 });
