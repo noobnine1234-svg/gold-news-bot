@@ -9,6 +9,18 @@ describe("reputation allowlist", () => {
     expect(isAllowlistedHost("fxstreet.com")).toBe(true);
   });
 
+  it("accepts expanded Thai allowlist from Bing apiclick starvation fix", () => {
+    expect(isAllowlistedHost("msn.com")).toBe(true);
+    expect(isAllowlistedHost("www.msn.com")).toBe(true);
+    expect(isAllowlistedHost("komchadluek.net")).toBe(true);
+    expect(isAllowlistedHost("bangkokbiznews.com")).toBe(true);
+    expect(isAllowlistedHost("ryt9.com")).toBe(true);
+    expect(isAllowlistedHost("pptvhd36.com")).toBe(true);
+    expect(isAllowlistedHost("matichon.co.th")).toBe(true);
+    expect(isAllowlistedHost("thestandard.co")).toBe(true);
+    expect(isAllowlistedHost("sub.ryt9.com")).toBe(true); // subdomain passes suffix match
+  });
+
   it("rejects unknown / lookalike hosts (fail-closed)", () => {
     expect(isAllowlistedHost("gold-blog.xyz")).toBe(false);
     expect(isAllowlistedHost("reuters.com.evil.io")).toBe(false); // suffix must be a dot boundary

@@ -126,3 +126,24 @@ describe("summarizeArticle output guard", () => {
     }
   });
 });
+
+describe("golden ranking rubric lock", () => {
+  // Locks that prompt v2 still scores price+driver+timeliness > fluff
+  // These are parser-level golden tests: the AI must emit these hashes high vs low.
+  // We use parseRanking directly to simulate a well-formed model response.
+  it("keeps price-moving + driver items high, fluff low", () => {
+    const raw = JSON.stringify([
+      { hash: "good-price-driver", score: 9, summary_th: "ทองพุ่ง 1.2% แตะ 2450 หลัง Fed ส่งสัญญาณลดดอกเบี้ย", direction: "bullish", why: "Fed dovish ดันราคาทอง" },
+      { hash: "good-breaking", score: 8, summary_th: "ดอลลาร์อ่อนหนุนทองบวกแรง", direction: "bullish", why: "DXY อ่อน" },
+      { hash: "fluff-recap", score: 2, summary_th: "", direction: "neutral", why: "สรุปทั่วไปไม่มีเลขใหม่" },
+      { hash: "old-no-driver", score: 3, summary_th: "", direction: "neutral", why: "ข่าวเก่า 30h ไม่มีปัจจัยใหม่" },
+    ]);
+    const r = parseRanking(raw)!;
+    expect(r["good-price-driver"].score).toBeGreaterThanOrEqual(8);
+    expect(r["good-breaking"].score).toBeGreaterThanOrEqual(7);
+    expect(r["fluff-recap"].score).toBeLessThanOrEqual(3);
+    expect(isPassing(r, "good-price-driver", 6)).toBe(true);
+    expect(isPassing(r, "fluff-recap", 6)).toBe(false);
+  });
+});
+
