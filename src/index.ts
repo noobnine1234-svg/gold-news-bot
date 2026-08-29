@@ -12,6 +12,7 @@ import { fetchArticleText } from "./article.js";
 import { isReputableLink } from "./reputation.js";
 import { guardedFetch } from "./http.js";
 import { formatMessage, sendTelegram, deleteMessage } from "./telegram.js";
+import { getGoldContext } from "./price.js";
 
 function isQuarantineEligible(item: NewsItem, keywords: typeof KEYWORDS): boolean {
   // balanced fallback: only trusted + strong keyword + recent <6h may pass when AI is down
@@ -111,12 +112,16 @@ export async function runCycle(): Promise<void> {
     return;
   }
 
-  // stage 1: one Gemini call scores the whole batch from headlines — with observability
+  // stage 1: one Gemini call scores the whole batch from headlines — with observability + gold spot context
+  let priceContext: string | null = null;
+  if (geminiKey) {
+    try { priceContext = await getGoldContext(); if (priceContext) console.log(`[price] ${priceContext}`); } catch {}
+  }
   let ranked: Awaited<ReturnType<typeof rankAndSummarize>> = null;
   if (geminiKey) {
     const t0 = Date.now();
     try {
-      ranked = await rankAndSummarize(items, geminiKey, config.quality_threshold);
+      ranked = await rankAndSummarize(items, geminiKey, config.quality_threshold, priceContext);
       const ms = Date.now() - t0;
       // logRank is fail-safe; never break the cycle on DB error
       try {
@@ -150,8 +155,9 @@ export async function runCycle(): Promise<void> {
     return isQuarantineEligible(it, KEYWORDS);
   };
 
-  // stage 2: deep Thai summary — budget-gated top 3, single batch call (saves N-1 quota)
+  // stage 2: deep Thai summary + content re-score — budget-gated top 3, single batch call (saves N-1 quota)
   const deepSummaries = new Map<string, string>();
+  const revisedScores = new Map<string, number>();
   if (geminiKey && ranked) {
     const passing = items.filter(passes).sort((a, b) => (ranked[b.hash]?.score ?? 0) - (ranked[a.hash]?.score ?? 0)).slice(0, 3);
     if (passing.length) {
@@ -162,19 +168,20 @@ export async function runCycle(): Promise<void> {
       if (withContent.length === 0) {
         console.log("[article] no content for top passing items");
       } else {
-        // batch path: one Gemini call for all deep summaries
+        // batch path: one Gemini call for all deep summaries + revised scores
         const { summarizeArticlesBatch, summarizeArticle: summarizeOne } = await import("./rank.js");
         // adapt {it,content} -> {item,content} for batch API
         const batchInput = withContent.map(({ it, content }) => ({ item: it, content }));
-        let batch: Map<string, string> | null = null;
+        let batch: Map<string, import("./rank.js").BatchSummary> | null = null;
         try {
-          batch = await summarizeArticlesBatch(batchInput, geminiKey);
+          batch = await summarizeArticlesBatch(batchInput, geminiKey, priceContext);
         } catch (e) {
           console.warn("[article] batch summarize failed, falling back to single", e);
         }
         if (batch && batch.size) {
-          for (const [h, s] of batch) deepSummaries.set(h, s);
+          for (const [h, v] of batch) { deepSummaries.set(h, v.summary); if (v.revisedScore != null) revisedScores.set(h, v.revisedScore); }
           console.log(`[article] batch summarized ${batch.size}/${withContent.length} (saved ${withContent.length - 1} call(s))`);
+          if (revisedScores.size) console.log(`[rescore] ${[...revisedScores.entries()].map(([h,s]) => h.slice(0,6)+":"+s).join(" ")}`);
           // fallback any missing (partial failure) via single-call path
           for (const { it, content } of withContent) {
             if (!deepSummaries.has(it.hash)) {
@@ -195,9 +202,18 @@ export async function runCycle(): Promise<void> {
     }
   }
 
+  let rescoreDropped = 0;
   for (const item of items) {
     try {
       const r = ranked?.[item.hash];
+      // content re-score gate: if batch judged the full article weaker than threshold, drop it
+      const rs = revisedScores.get(item.hash);
+      if (rs != null && rs < config.quality_threshold) {
+        console.log(`[skip:rescore] ${rs}/10 < ${config.quality_threshold} ${item.title.slice(0,60)}`);
+        rescoreDropped++;
+        if (!dryRun) store.markSent(item.hash);
+        continue;
+      }
       if (!passes(item)) {
         // in quarantine mode we still want to log why, but aiVetted distinguishes
         const reason = ranked ? `score ${r?.score ?? "?"}/10` : "quarantine";
@@ -230,6 +246,7 @@ export async function runCycle(): Promise<void> {
       }
     }
   }
+  if (rescoreDropped) console.log(`[rescore] dropped ${rescoreDropped} after content re-score`);
   console.log(`[cycle] done, total processed ever: ${store.count()}`);
 }
 
