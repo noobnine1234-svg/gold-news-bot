@@ -150,23 +150,48 @@ export async function runCycle(): Promise<void> {
     return isQuarantineEligible(it, KEYWORDS);
   };
 
-  // stage 2: deep Thai summary — budget-gated top 3, batched if possible
+  // stage 2: deep Thai summary — budget-gated top 3, single batch call (saves N-1 quota)
   const deepSummaries = new Map<string, string>();
   if (geminiKey && ranked) {
     const passing = items.filter(passes).sort((a, b) => (ranked[b.hash]?.score ?? 0) - (ranked[a.hash]?.score ?? 0)).slice(0, 3);
     if (passing.length) {
-      // fetch articles in parallel (with cap)
       const fetched = await Promise.all(
         passing.map(async (it) => ({ it, content: await fetchArticleText(it.link) }))
       );
-      const withContent = fetched.filter((x) => !!x.content);
-      for (const { it, content } of withContent) {
-        if (!content) continue;
-        const summary = await summarizeArticle(it, content!, geminiKey);
-        if (summary) deepSummaries.set(it.hash, summary);
-        console.log(`[article] summarized (${content!.length} chars): ${it.title.slice(0, 50)}`);
+      const withContent = fetched.filter((x): x is { it: typeof x.it; content: string } => !!x.content);
+      if (withContent.length === 0) {
+        console.log("[article] no content for top passing items");
+      } else {
+        // batch path: one Gemini call for all deep summaries
+        const { summarizeArticlesBatch, summarizeArticle: summarizeOne } = await import("./rank.js");
+        // adapt {it,content} -> {item,content} for batch API
+        const batchInput = withContent.map(({ it, content }) => ({ item: it, content }));
+        let batch: Map<string, string> | null = null;
+        try {
+          batch = await summarizeArticlesBatch(batchInput, geminiKey);
+        } catch (e) {
+          console.warn("[article] batch summarize failed, falling back to single", e);
+        }
+        if (batch && batch.size) {
+          for (const [h, s] of batch) deepSummaries.set(h, s);
+          console.log(`[article] batch summarized ${batch.size}/${withContent.length} (saved ${withContent.length - 1} call(s))`);
+          // fallback any missing (partial failure) via single-call path
+          for (const { it, content } of withContent) {
+            if (!deepSummaries.has(it.hash)) {
+              const s = await summarizeOne(it, content, geminiKey);
+              if (s) deepSummaries.set(it.hash, s);
+            }
+          }
+        } else {
+          // batch unparseable or empty -> sequential fallback (max 3 calls)
+          console.warn("[article] batch empty/unparseable, sequential fallback");
+          for (const { it, content } of withContent) {
+            const s = await summarizeOne(it, content, geminiKey);
+            if (s) deepSummaries.set(it.hash, s);
+            console.log(`[article] summarized (${content.length} chars): ${it.title.slice(0, 50)}`);
+          }
+        }
       }
-      if (withContent.length === 0) console.log("[article] no content for top passing items");
     }
   }
 
