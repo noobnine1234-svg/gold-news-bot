@@ -52,6 +52,16 @@ describe("parseRanking", () => {
   it("returns null on empty array", () => {
     expect(parseRanking("[]")).toBeNull();
   });
+
+  it("repairs trailing comma and fence", () => {
+    const r = parseRanking('[{"hash":"a","score":8,"summary_th":"ok"},]');
+    expect(r!["a"].score).toBe(8);
+  });
+
+  it("repairs text with extra prose around array", () => {
+    const r = parseRanking('Here is result: [{"hash":"a","score":9,"summary_th":"ดี"}] done');
+    expect(r!["a"].score).toBe(9);
+  });
 });
 
 describe("sanitizeAiText (prompt-injection output guard)", () => {
