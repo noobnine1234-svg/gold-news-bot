@@ -22,7 +22,10 @@ function isQuarantineEligible(item: NewsItem, keywords: typeof KEYWORDS): boolea
 }
 
 function dedupByTitle(items: NewsItem[]): NewsItem[] {
-  // Jaccard on token sets, threshold 0.82 — cheap semantic dedup without embedding
+  // Jaccard on token sets, threshold 0.82 — cheap semantic dedup without embedding.
+  // Trade-off: embedding (e.g. miniLM) catches Thai/EN paraphrases better but costs an extra
+  // model call + quota per cycle; Jaccard already drops 0 after reputation fix and is 0-quota,
+  // so we keep it. Revisit only if near-duplicate slip-through >5%/week.
   const tokenize = (s: string) => new Set(s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter(Boolean));
   const jaccard = (a: Set<string>, b: Set<string>) => {
     let inter = 0;
