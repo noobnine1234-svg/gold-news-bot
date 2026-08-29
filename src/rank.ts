@@ -9,6 +9,9 @@ const MODEL_CHAIN = [
   "gemini-3.7-flash",
 ];
 let activeModel: string | null = null;
+let lastRaw: string | null = null;
+export function getActiveModel(): string | null { return activeModel; }
+export function getLastRaw(): string | null { return lastRaw; }
 
 export type Direction = "bullish" | "bearish" | "neutral";
 export const DIRECTIONS: Direction[] = ["bullish", "bearish", "neutral"];
@@ -43,6 +46,7 @@ async function withModelFallback<T>(
     const result = await call(model);
     if (result.ok) {
       activeModel = model;
+      if (typeof result.value === "string") lastRaw = result.value;
       return result.value;
     }
     lastErr = result.error;

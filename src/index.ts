@@ -111,10 +111,35 @@ export async function runCycle(): Promise<void> {
     return;
   }
 
-  // stage 1: one Gemini call scores the whole batch from headlines
-  const ranked = geminiKey
-    ? await rankAndSummarize(items, geminiKey, config.quality_threshold)
-    : null;
+  // stage 1: one Gemini call scores the whole batch from headlines — with observability
+  let ranked: Awaited<ReturnType<typeof rankAndSummarize>> = null;
+  if (geminiKey) {
+    const t0 = Date.now();
+    try {
+      ranked = await rankAndSummarize(items, geminiKey, config.quality_threshold);
+      const ms = Date.now() - t0;
+      // logRank is fail-safe; never break the cycle on DB error
+      try {
+        const { getActiveModel, getLastRaw } = await import("./rank.js");
+        store.logRank({
+          model: getActiveModel(),
+          threshold: config.quality_threshold,
+          inputCount: items.length,
+          outputCount: ranked ? Object.keys(ranked).length : null,
+          latencyMs: ms,
+          error: ranked ? null : "all models failed or unparseable",
+          rawTruncated: getLastRaw()?.slice(0, 2000) ?? null,
+        });
+      } catch {}
+      console.log(`[rank] ${ranked ? Object.keys(ranked).length : 0}/${items.length} scored in ${ms}ms`);
+    } catch (e) {
+      const ms = Date.now() - t0;
+      try {
+        store.logRank({ model: null, threshold: config.quality_threshold, inputCount: items.length, outputCount: null, latencyMs: ms, error: String(e).slice(0, 300) });
+      } catch {}
+      console.warn("[rank] exception", e);
+    }
+  }
   if (geminiKey && !ranked) console.warn("[rank] AI ranking unavailable — quarantine mode (no send-all)");
 
   // aiVetted true only when we have a ranking; when ranked is null we are in quarantine
