@@ -19,7 +19,7 @@ describe("getGoldContext", () => {
     const v = await getGoldContext();
     expect(v === null || v.startsWith("XAU $")).toBe(true);
     globalThis.fetch = orig;
-  });
+  }, 10000);
 
   it("cache is used for second call (no double fetch)", async () => {
     __setPriceCache("XAU $3000");

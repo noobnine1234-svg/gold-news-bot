@@ -20,16 +20,32 @@ export async function readCappedStream(
   const decoder = new TextDecoder();
   let total = 0;
   let text = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      void reader.cancel();
-      return null;
+  try {
+    for (;;) {
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch {
+        try { await reader.cancel(); } catch {}
+        return null;
+      }
+      const { done, value } = chunk;
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch {}
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
     }
-    text += decoder.decode(value, { stream: true });
+  } catch {
+    try { await reader.cancel(); } catch {}
+    return null;
   }
-  text += decoder.decode();
+  try {
+    text += decoder.decode();
+  } catch {
+    return null;
+  }
   return text;
 }

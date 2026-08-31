@@ -165,7 +165,15 @@ export async function runCycle(): Promise<void> {
     const passing = items.filter(passes).sort((a, b) => (ranked[b.hash]?.score ?? 0) - (ranked[a.hash]?.score ?? 0)).slice(0, 3);
     if (passing.length) {
       const fetched = await Promise.all(
-        passing.map(async (it) => ({ it, content: await fetchArticleText(it.link) }))
+        passing.map(async (it) => {
+          try {
+            const c = await fetchArticleText(it.link);
+            return { it, content: c };
+          } catch (e) {
+            console.warn(`[article] fetch failed (exception) ${it.link.slice(0,80)}`, e);
+            return { it, content: null as string | null };
+          }
+        })
       );
       const withContent = fetched.filter((x): x is { it: typeof x.it; content: string } => !!x.content);
       if (withContent.length === 0) {
@@ -188,17 +196,25 @@ export async function runCycle(): Promise<void> {
           // fallback any missing (partial failure) via single-call path
           for (const { it, content } of withContent) {
             if (!deepSummaries.has(it.hash)) {
-              const s = await summarizeOne(it, content, geminiKey);
-              if (s) deepSummaries.set(it.hash, s);
+              try {
+                const s = await summarizeOne(it, content, geminiKey);
+                if (s) deepSummaries.set(it.hash, s);
+              } catch (e) {
+                console.warn(`[article] summarizeOne fallback failed ${it.hash.slice(0,6)}`, e);
+              }
             }
           }
         } else {
           // batch unparseable or empty -> sequential fallback (max 3 calls)
           console.warn("[article] batch empty/unparseable, sequential fallback");
           for (const { it, content } of withContent) {
-            const s = await summarizeOne(it, content, geminiKey);
-            if (s) deepSummaries.set(it.hash, s);
-            console.log(`[article] summarized (${content.length} chars): ${it.title.slice(0, 50)}`);
+            try {
+              const s = await summarizeOne(it, content, geminiKey);
+              if (s) deepSummaries.set(it.hash, s);
+              console.log(`[article] summarized (${content.length} chars): ${it.title.slice(0, 50)}`);
+            } catch (e) {
+              console.warn(`[article] sequential summarize failed ${it.hash.slice(0,6)}`, e);
+            }
           }
         }
       }
