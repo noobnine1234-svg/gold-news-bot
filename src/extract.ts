@@ -22,22 +22,26 @@ export async function fetchArticleText(
   timeoutMs = 12000,
   fetchFn: FetchFn
 ): Promise<string | null> {
-  const res = await fetchFn(url, timeoutMs, 0, "text/html");
-  if (!res || !res.ok) return null;
-  // Google News wrapper pages render via JS — no server-side article body
   try {
-    const host = new URL(res.url).hostname;
-    if (host === "news.google.com" || host.endsWith(".news.google.com")) return null;
+    const res = await fetchFn(url, timeoutMs, 0, "text/html");
+    if (!res || !res.ok) return null;
+    // Google News wrapper pages render via JS — no server-side article body
+    try {
+      const host = new URL(res.url).hostname;
+      if (host === "news.google.com" || host.endsWith(".news.google.com")) return null;
+    } catch {
+      return null;
+    }
+    const ctype = res.headers.get("content-type") ?? "";
+    if (!ctype.includes("html")) return null;
+    const html = await readCapped(res);
+    if (!html) return null;
+    const text = htmlToText(html);
+    if (text.length < 200) return null; // nav junk / paywall stub
+    return text.slice(0, maxChars);
   } catch {
     return null;
   }
-  const ctype = res.headers.get("content-type") ?? "";
-  if (!ctype.includes("html")) return null;
-  const html = await readCapped(res);
-  if (!html) return null;
-  const text = htmlToText(html);
-  if (text.length < 200) return null; // nav junk / paywall stub
-  return text.slice(0, maxChars);
 }
 
 export function htmlToText(html: string): string {
