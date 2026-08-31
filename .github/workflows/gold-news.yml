@@ -1,7 +1,9 @@
 name: gold-news
 
 on:
-  workflow_dispatch: # production runs on Cloudflare Workers cron; this stays for manual runs
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 concurrency:
   group: gold-news
@@ -11,6 +13,8 @@ jobs:
   cycle:
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -28,6 +32,20 @@ jobs:
             goldnews-
 
       - run: npm ci
+
+      - name: Validate secrets
+        run: |
+          missing=0
+          for v in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID GEMINI_API_KEY; do
+            if [ -z "${!v}" ]; then echo "::warning::Secret $v not set — cycle will run degraded (no Telegram/Gemini)"; fi
+          done
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::notice::Telegram secrets missing — dry-run behavior expected"
+          fi
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Run one fetch cycle
         env:
